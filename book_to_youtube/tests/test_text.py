@@ -59,3 +59,27 @@ def test_script_segments_are_bounded():
     assert script.segments[-1].kind == "outro" and "fin du livre" in script.segments[-1].text
     assert all(len(s.text) <= 120 for s in script.segments if s.kind == "body")
     assert script.segments[1].text.startswith("Monsieur Dupont arriva.")
+
+
+def test_table_of_contents_is_not_read_nor_used_as_title():
+    body = " ".join(["Une phrase de test assez banale."] * 40)
+    raw = "\n".join([
+        "Table des matières",
+        "Chapitre premier Sur la plage de Kirkcaple............ 5",
+        "Chapitre II Vers l’inconnu . . . . . . . . . . 21",
+        "Chapitre III Blaauwildebeestefontein……… 40",
+        "", "Chapitre premier", "", "Sur la plage de Kirkcaple", "", body,
+        "", "Chapitre II", "", "Vers l’inconnu", "", body,
+    ])
+    text = cleaner.clean(raw)
+    assert "Kirkcaple....." not in text and "21" not in text
+    episodes = splitter.split(text, CONFIG)
+    assert [e.title for e in episodes] == [
+        "Chapitre premier — Sur la plage de Kirkcaple", "Chapitre II — Vers l’inconnu"]
+
+
+def test_heading_run_without_body_keeps_only_last():
+    body = " ".join(["Une phrase de test assez banale."] * 40)
+    text = "\n\n".join(["Chapitre I Le début", "Chapitre II La suite", "Chapitre III La fin", body])
+    (episode,) = splitter.split(text, CONFIG)
+    assert episode.title == "Chapitre III La fin"

@@ -60,7 +60,16 @@ def synthesize(script: Script, out_path: str | Path, config: dict) -> AudioTrack
 
     if missing:
         if engine == "edge":
-            asyncio.run(_edge_batch(missing, voice, config))
+            try:
+                asyncio.run(_edge_batch(missing, voice, config))
+            except Exception as err:
+                raise RuntimeError(
+                    f"La synthèse edge-tts a échoué ({type(err).__name__}: {err}).\n"
+                    "Une erreur 403 signifie généralement que edge-tts est trop ancien "
+                    "pour le service Microsoft : `pip install -U edge-tts`. "
+                    "Vérifiez aussi la date et l'heure du téléphone, ou essayez un autre "
+                    "moteur : `--tts gtts`."
+                ) from err
         elif engine == "gtts":
             for text, wav in missing:
                 _gtts(text, wav, voice or lang)

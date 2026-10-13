@@ -99,3 +99,12 @@ def test_build_in_summary_mode(tmp_path, config, monkeypatch):
     (ep,) = uploader.load_manifest(manifest)["episodes"]
     assert ep["narration"] == "resume" and ep["words"] == 4
     assert "IA" in ep["description"]
+
+
+def test_max_episodes_keeps_series_numbering(tmp_path, config):
+    body = " ".join(["Une phrase de test assez banale."] * 30)
+    book = tmp_path / "livre.txt"
+    book.write_text("\n\n".join(f"Chapitre {i}\n\n{body}" for i in (1, 2, 3)), encoding="utf-8")
+    manifest = main.main(book, {**config, "max_episodes": 1})
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    assert "1/3" in ep["description"]

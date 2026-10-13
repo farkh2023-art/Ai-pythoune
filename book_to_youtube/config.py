@@ -33,7 +33,7 @@ CONFIG = {
     "max_minutes": 20,
     # Un épisode plus court que min_words est fusionné avec le précédent.
     "min_words": 120,
-    "max_episodes": None,  # limiter le nombre d'épisodes générés (None = tous)
+    "max_episodes": None,  # ne générer que les N premiers épisodes (None = tous)
 
     # --- Narration ---------------------------------------------------------
     # "fidele" : lecture intégrale du texte

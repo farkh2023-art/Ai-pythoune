@@ -58,7 +58,8 @@ def main(book_path: str | Path, config: dict | None = None,
     total = len(episodes)
     print(f"« {book.title} » : {total} épisode(s), "
           f"{sum(e.word_count for e in episodes)} mots.")
-    for ep in episodes:
+    limit = config.get("max_episodes")
+    for ep in episodes[:limit] if limit else episodes:
         if only and ep.number not in only:
             continue
         name = f"episode_{ep.number:03d}"

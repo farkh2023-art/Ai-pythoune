@@ -17,6 +17,8 @@ _PAGE_NUMBER = re.compile(
 )
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f​-‏  ﻿­]")
 _SEPARATOR = re.compile(r"^\s*([*#~=_.\-•·]\s*){3,}$")
+# Ligne de table des matières : « Chapitre II Vers l'inconnu........ 21 ».
+_TOC_LINE = re.compile(r"(?:\.\s?){4,}\s*\d{1,4}\s*$|…{2,}\s*\d{1,4}\s*$")
 _SENTENCE_END = re.compile(r"[.!?…:»\"”)\]]$")
 
 # Lignes qui doivent rester des paragraphes isolés (titres de chapitres…).
@@ -46,6 +48,7 @@ def clean(text: str) -> str:
 
     lines = [ln.strip() for ln in lines]
     lines = [ln for ln in lines if not _PAGE_NUMBER.match(ln) or not ln]
+    lines = ["" if _TOC_LINE.search(ln) else ln for ln in lines]  # sommaire : non lu
     lines = ["" if _SEPARATOR.match(ln) else ln for ln in lines]
     paragraphs = _join_lines(lines)
     paragraphs = [_normalize_spaces(p) for p in paragraphs]
