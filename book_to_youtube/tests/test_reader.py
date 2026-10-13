@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from modules import reader
@@ -47,6 +49,23 @@ def test_pdf_pages_are_separated(tmp_path):
         doc.new_page().insert_text((72, 72), text)
     doc.save(tmp_path / "b.pdf")
     assert reader.load(tmp_path / "b.pdf").count("\f") == 1
+
+
+def test_pdf_falls_back_to_pypdf(tmp_path, monkeypatch):
+    pymupdf = pytest.importorskip("pymupdf")
+    pytest.importorskip("pypdf")
+    doc = pymupdf.open()
+    doc.set_metadata({"title": "Titre PDF", "author": "Auteur"})
+    for text in ("Page un.", "Page deux."):
+        doc.new_page().insert_text((72, 72), text)
+    doc.save(tmp_path / "b.pdf")
+
+    # Simule un environnement sans PyMuPDF (Termux).
+    monkeypatch.setitem(sys.modules, "pymupdf", None)
+    monkeypatch.setitem(sys.modules, "fitz", None)
+    book = reader.load_book(tmp_path / "b.pdf")
+    assert (book.title, book.author) == ("Titre PDF", "Auteur")
+    assert book.text.split("\f") == ["Page un.", "Page deux."]
 
 
 def test_unsupported_format(tmp_path):

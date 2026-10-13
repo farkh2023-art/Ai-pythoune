@@ -70,13 +70,34 @@ def _load_txt(path: Path) -> tuple[str, dict]:
 def _load_pdf(path: Path) -> tuple[str, dict]:
     try:
         import pymupdf  # PyMuPDF >= 1.24
-    except ImportError:  # pragma: no cover - anciennes versions
-        import fitz as pymupdf
+    except ImportError:
+        try:  # anciennes versions de PyMuPDF
+            import fitz as pymupdf
+        except ImportError:
+            # PyMuPDF absent (ex. Android/Termux, sans paquet précompilé) : pypdf,
+            # en pur Python, s'installe partout mais extrait le texte plus lentement.
+            return _load_pdf_pypdf(path)
 
     with pymupdf.open(path) as doc:
         pages = [page.get_text("text") for page in doc]
         meta = {k: v for k, v in (doc.metadata or {}).items() if v}
     return "\f".join(pages), meta
+
+
+def _load_pdf_pypdf(path: Path) -> tuple[str, dict]:
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise ImportError(
+            "Lecture des PDF impossible : installez PyMuPDF (`pip install pymupdf`) "
+            "ou, à défaut, pypdf (`pip install pypdf`)."
+        ) from None
+
+    reader = PdfReader(str(path))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    info = reader.metadata
+    meta = {"title": info.title, "author": info.author} if info else {}
+    return "\f".join(pages), {k: v for k, v in meta.items() if v}
 
 
 def _load_docx(path: Path) -> tuple[str, dict]:

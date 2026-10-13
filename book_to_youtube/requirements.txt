@@ -1,5 +1,6 @@
 # Lecture des livres
-PyMuPDF>=1.24        # PDF
+PyMuPDF>=1.24        # PDF (recommandé)
+pypdf>=4.0           # PDF, repli en pur Python si PyMuPDF ne s'installe pas (Termux)
 EbookLib>=0.18       # EPUB
 python-docx>=1.1     # DOCX
 

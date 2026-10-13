@@ -34,6 +34,22 @@ pip install -r requirements.txt
 **ffmpeg** (avec ffprobe) doit être installé et dans le `PATH` :
 `apt install ffmpeg`, `brew install ffmpeg` ou `winget install ffmpeg`.
 
+### Android (Termux)
+
+```bash
+pkg update && pkg upgrade
+pkg install python ffmpeg git python-pillow libxml2 libxslt
+termux-setup-storage
+git clone https://github.com/farkh2023-art/Ai-pythoune.git && cd Ai-pythoune/book_to_youtube
+pip install pypdf edge-tts ebooklib python-docx google-api-python-client google-auth-oauthlib
+```
+
+PyMuPDF n'a pas de paquet précompilé pour Android : sans lui, les PDF sont lus
+avec **pypdf** (pur Python, plus lent mais équivalent pour ce projet). Conseils :
+`--resolution 1280x720` pour un montage plus rapide, `termux-wake-lock` pour ne
+pas être interrompu écran éteint, et `cp ~/storage/downloads/livre.pdf data/input/`
+pour récupérer un livre téléchargé.
+
 ## Utilisation
 
 ### 1. Générer les vidéos
