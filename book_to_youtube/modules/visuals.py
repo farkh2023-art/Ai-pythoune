@@ -319,6 +319,36 @@ def generate(script: Script, timings: list[Timing], out_dir: str | Path, config:
     return slides
 
 
+def composite_slides(overlays: list[Slide], timings: list[Timing], scenes: list,
+                     fallback: str | Path, out_dir: str | Path, config: dict) -> list[Slide]:
+    """Style illustré sans zoom : chaque calque est fusionné avec l'image de sa scène.
+
+    Le montage devient alors un simple diaporama, bien plus rapide à encoder.
+    """
+    out_dir = Path(out_dir)
+    size = tuple(config.get("resolution", (1920, 1080)))
+    covers: dict = {}
+
+    def cover(path) -> Image.Image:
+        if path not in covers:
+            img = Image.open(path).convert("RGB")
+            scale = max(size[0] / img.width, size[1] / img.height)
+            img = img.resize((round(img.width * scale), round(img.height * scale)))
+            left, top = (img.width - size[0]) // 2, (img.height - size[1]) // 2
+            covers[path] = img.crop((left, top, left + size[0], top + size[1])).convert("RGBA")
+        return covers[path]
+
+    slides = []
+    for i, (overlay, timing) in enumerate(zip(overlays, timings)):
+        scene = next((s for s in scenes if s.start <= timing.start < s.end), scenes[-1])
+        image = scene.illustration.path if scene.illustration else fallback
+        frame = Image.alpha_composite(cover(image), Image.open(overlay.image).convert("RGBA"))
+        path = out_dir / f"slide_{i:04d}.png"
+        frame.convert("RGB").save(path, compress_level=1)
+        slides.append(Slide(path, overlay.duration))
+    return slides
+
+
 def plain_background(path: str | Path, config: dict) -> Path:
     """Fond dégradé du thème, utilisé quand aucune illustration n'est trouvée."""
     path = Path(path)

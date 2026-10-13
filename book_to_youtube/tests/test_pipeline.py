@@ -110,7 +110,8 @@ def test_max_episodes_keeps_series_numbering(tmp_path, config):
     assert "1/3" in ep["description"]
 
 
-def test_build_illustrated_style(tmp_path, config, monkeypatch):
+@pytest.mark.parametrize("ken_burns", [True, False])
+def test_build_illustrated_style(tmp_path, config, monkeypatch, ken_burns):
     from test_illustrations import FakeCommons, page
     from modules import illustrations
 
@@ -122,7 +123,8 @@ def test_build_illustrated_style(tmp_path, config, monkeypatch):
     body = " ".join(["Une phrase assez banale sur la plage."] * 60)
     book = tmp_path / "livre.txt"
     book.write_text(f"Chapitre 1\n\n{body}", encoding="utf-8")
-    manifest = main.main(book, {**config, "visual_style": "illustre", "scene_seconds": 10})
+    manifest = main.main(book, {**config, "visual_style": "illustre", "scene_seconds": 10,
+                                "ken_burns": ken_burns})
     (ep,) = uploader.load_manifest(manifest)["episodes"]
     video = manifest.parent / ep["video"]
     duration = float(subprocess.run(

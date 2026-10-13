@@ -98,8 +98,13 @@ def main(book_path: str | Path, config: dict | None = None,
             overlays = visuals.generate_overlays(script, audio.timings, images_dir, config,
                                                  book_title=book.title, last_episode=last)
             fallback = visuals.plain_background(images_dir / "fond.jpg", config)
-            video.assemble_illustrated(audio.path, scenes, overlays, video_path,  # 7. Montage
-                                       config, images_dir, fallback)
+            if config["ken_burns"]:                                         # 7. Montage
+                video.assemble_illustrated(audio.path, scenes, overlays, video_path,
+                                           config, images_dir, fallback)
+            else:
+                slides = visuals.composite_slides(overlays, audio.timings, scenes, fallback,
+                                                  images_dir, config)
+                video.assemble(audio.path, slides, video_path, config)
             credits = illustrations.credits(scenes)
             cover = next((s.illustration.path for s in scenes if s.illustration), None)
         else:
@@ -207,7 +212,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--style", choices=["slides", "card", "illustre"],
                    help="style visuel (illustre : images Wikimedia Commons + zoom lent)")
     b.add_argument("--scene-seconds", type=float, help="durée d'une scène illustrée (s)")
-    b.add_argument("--no-zoom", action="store_true", help="illustrations fixes, sans zoom lent")
+    b.add_argument("--no-zoom", action="store_true",
+                   help="illustrations fixes, sans zoom lent (montage bien plus rapide)")
+    b.add_argument("--fps", type=int, help="images par seconde (défaut 25 ; 20 = plus rapide)")
     b.add_argument("--theme", help="recherche d'image de secours, ex. « veld Afrique du Sud »")
     b.add_argument("--image-hint", help="mot ajouté à chaque recherche, ex. « painting »")
     b.add_argument("--background", type=Path, help="image de fond")
@@ -247,6 +254,8 @@ def cli(argv: list[str] | None = None) -> int:
             "illustration_hint": args.image_hint,
             "background_image": args.background, "max_episodes": args.max_episodes,
         }.items() if value is not None}
+        if args.fps:
+            overrides["fps"] = args.fps
         if args.no_zoom:
             overrides["ken_burns"] = False
         if args.resolution:

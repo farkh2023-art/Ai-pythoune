@@ -106,7 +106,9 @@ def assemble_illustrated(audio_path: str | Path, scenes: list, overlays: list[Sl
     work_dir.mkdir(parents=True, exist_ok=True)
     fps = int(config.get("fps", 25))
     w, h = config.get("resolution", (1920, 1080))
-    zoom = 0.12 if config.get("ken_burns", True) else 0.0
+    zoom = 0.12
+    # Agrandir avant zoompan limite les saccades dues aux arrondis de pixels.
+    supersampling = float(config.get("zoom_supersampling", 1.5))
 
     # 1. Un clip par scène. Encodage intermédiaire rapide et quasi sans perte.
     clips = []
@@ -116,9 +118,8 @@ def assemble_illustrated(audio_path: str | Path, scenes: list, overlays: list[Sl
             frames += fps  # marge : les arrondis ne doivent pas couper la fin de la narration
         image = scene.illustration.path if scene.illustration else fallback_image
         z, x, y = (part.format(z=zoom, n=frames) for part in _MOVES[k % len(_MOVES)])
-        # Agrandir avant zoompan limite les saccades dues aux arrondis de pixels.
-        vf = (f"scale={2 * w}:{2 * h}:force_original_aspect_ratio=increase,"
-              f"crop={2 * w}:{2 * h},"
+        sw, sh = (round(v * supersampling / 2) * 2 for v in (w, h))
+        vf = (f"scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},"
               f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps},"
               "format=yuv420p")
         clip = work_dir / f"scene_{k:03d}.mp4"

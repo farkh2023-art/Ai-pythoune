@@ -64,7 +64,8 @@ CONFIG = {
     #              une par scène, avec zoom lent et texte dans un bandeau
     "visual_style": "slides",
     "scene_seconds": 40,  # durée visée d'une scène illustrée
-    "ken_burns": True,  # zoom / travelling lent sur les illustrations
+    "ken_burns": True,  # zoom / travelling lent sur les illustrations (plus lent à monter)
+    "zoom_supersampling": 1.5,  # 1 = plus rapide, 2 = mouvement plus fluide
     "illustration_theme": None,  # recherche de secours, ex. "veld Afrique du Sud"
     "illustration_hint": "",  # ajouté à chaque recherche, ex. "painting"
     "resolution": (1920, 1080),
@@ -78,7 +79,9 @@ CONFIG = {
     "fps": 25,
     "video_codec": "libx264",
     "crf": 23,
-    "preset": "medium",
+    # Vitesse d'encodage x264 : "veryfast" est ~40 % plus rapide que "medium" pour une
+    # qualité visuelle quasi identique sur ce type de vidéo (images fixes).
+    "preset": "veryfast",
     "audio_bitrate": "160k",
 
     # --- Publication YouTube -----------------------------------------------
