@@ -88,3 +88,14 @@ def test_interactive_review(manifest):
 
 def test_parse_numbers():
     assert main.parse_numbers("1,3,5-7") == [1, 3, 5, 6, 7]
+
+
+def test_build_in_summary_mode(tmp_path, config, monkeypatch):
+    monkeypatch.setattr("modules.summarizer._call_claude",
+                        lambda system, prompt, cfg, client=None: "Résumé court du chapitre.")
+    book = tmp_path / "livre.txt"
+    book.write_text("Chapitre 1\n\n" + " ".join(["Une phrase assez banale."] * 50), encoding="utf-8")
+    manifest = main.main(book, {**config, "narration_mode": "resume"})
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    assert ep["narration"] == "resume" and ep["words"] == 4
+    assert "IA" in ep["description"]

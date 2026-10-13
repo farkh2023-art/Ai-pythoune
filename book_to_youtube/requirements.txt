@@ -8,6 +8,9 @@ edge-tts>=6.1        # en ligne, voix neuronales (par défaut)
 gTTS>=2.5            # en ligne, alternative
 # pyttsx3>=2.90      # hors-ligne (décommenter si besoin, nécessite espeak sous Linux)
 
+# Mode « résumé » de la narration (API Claude)
+anthropic>=1.13
+
 # Visuels
 Pillow>=10.1
 

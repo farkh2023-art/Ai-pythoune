@@ -18,14 +18,14 @@ import unicodedata
 from pathlib import Path
 
 from config import CONFIG
-from modules import (cleaner, reader, scripter, splitter, subtitles, tts, uploader, video,
-                     visuals)
+from modules import (cleaner, reader, scripter, splitter, subtitles, summarizer, tts, uploader,
+                     video, visuals)
 
 DESCRIPTION_LABELS = {
     "fr": {"episode": "Épisode", "voice": "Narration : voix de synthèse.",
-           "series": "Série complète", "by": "de"},
+           "summary": "Résumé du texte original, rédigé avec l'aide d'une IA.", "by": "de"},
     "en": {"episode": "Episode", "voice": "Narration: synthetic voice.",
-           "series": "Full series", "by": "by"},
+           "summary": "Summary of the original text, written with AI assistance.", "by": "by"},
 }
 
 
@@ -68,6 +68,13 @@ def main(book_path: str | Path, config: dict | None = None,
             continue
         started = time.monotonic()
         print(f"[{ep.number}/{total}] {ep.title} — {ep.word_count} mots")
+        if config["narration_mode"] == "resume":
+            original = ep
+            ep = summarizer.summarize_episode(ep, config, book_title=book.title,
+                                              author=book.author, total_episodes=total,
+                                              cache_dir=Path(config["episodes_dir"]) / slug)
+            print(f"    résumé : {ep.word_count} mots "
+                  f"({summarizer.summary_ratio(original, ep):.0%} de l'original)")
 
         script = scripter.make_script(ep, config, book_title=book.title,   # 4. Script
                                       author=book.author, total_episodes=total)
@@ -94,6 +101,7 @@ def main(book_path: str | Path, config: dict | None = None,
             "thumbnail": thumb.name,
             "duration": round(audio.duration, 2),
             "words": ep.word_count,
+            "narration": config["narration_mode"],
             "status": uploader.PENDING,
         })
         uploader.save_manifest(manifest, manifest_path)
@@ -121,7 +129,8 @@ def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, con
         excerpt = excerpt[:300].rsplit(" ", 1)[0] + "…"
     author = f" {labels['by']} {book.author}" if book.author else ""
     return (f"{book.title}{author} — {labels['episode']} {ep.number}/{total} : {ep.title}\n\n"
-            f"{excerpt}\n\n{labels['voice']}")
+            f"{excerpt}\n\n{labels['voice']}"
+            + (f" {labels['summary']}" if config.get("narration_mode") == "resume" else ""))
 
 
 def parse_numbers(value: str | None) -> list[int] | None:
@@ -150,6 +159,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--max-minutes", type=float, help="durée max d'un chapitre avant redécoupage")
     b.add_argument("--words", type=int, help="nombre de mots par épisode (mode words)")
     b.add_argument("--lang", choices=["fr", "en"], help="langue de la narration")
+    b.add_argument("--narration", choices=["fidele", "resume"],
+                   help="lecture intégrale ou résumé de chaque épisode (Claude)")
+    b.add_argument("--summary-minutes", type=float, help="durée visée d'un épisode résumé")
     b.add_argument("--tts", choices=["edge", "gtts", "pyttsx3", "silent"], help="moteur TTS")
     b.add_argument("--voice", help="voix TTS (ex. fr-FR-HenriNeural)")
     b.add_argument("--rate", help="vitesse edge-tts (ex. +10%%)")
@@ -184,7 +196,8 @@ def cli(argv: list[str] | None = None) -> int:
         overrides = {key: value for key, value in {
             "split_mode": args.split, "target_minutes": args.minutes,
             "max_minutes": args.max_minutes, "target_words": args.words,
-            "language": args.lang, "tts_engine": args.tts, "voice": args.voice,
+            "language": args.lang, "narration_mode": args.narration,
+            "summary_minutes": args.summary_minutes, "tts_engine": args.tts, "voice": args.voice,
             "tts_rate": args.rate, "visual_style": args.style,
             "background_image": args.background, "max_episodes": args.max_episodes,
         }.items() if value is not None}

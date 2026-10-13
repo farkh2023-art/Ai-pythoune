@@ -13,6 +13,7 @@ créateur de la chaîne**.
 | 2. Nettoyage | `modules/cleaner.py` | en-têtes, pieds de page, numéros de page, césures, retours à la ligne → paragraphes |
 | 3. Découpage | `modules/splitter.py` | texte → épisodes (chapitre, durée cible ou nombre de mots) |
 | 4. Script | `modules/scripter.py` | épisode → segments à lire (intro, texte, outro) |
+| — Résumé (optionnel) | `modules/summarizer.py` | épisode → narration résumée par Claude |
 | 5. Voix off | `modules/tts.py` | segments → WAV + minutage exact de chaque segment |
 | 6. Visuels | `modules/visuals.py` | une image par segment + miniature 1280×720 |
 | — Sous-titres | `modules/subtitles.py` | minutage → fichier `.srt` |
@@ -49,6 +50,8 @@ Options utiles :
 | `--minutes 8` / `--words 1200` | taille cible d'un épisode |
 | `--max-minutes 20` | en mode chapitre, un chapitre plus long est découpé en parties égales |
 | `--lang fr\|en` | langue de la narration |
+| `--narration fidele\|resume` | lecture intégrale (défaut) ou résumé de chaque épisode — voir ci-dessous |
+| `--summary-minutes 5` | durée visée d'un épisode résumé |
 | `--tts edge\|gtts\|pyttsx3\|silent` | moteur de synthèse vocale (`silent` = test du montage sans voix) |
 | `--voice fr-FR-HenriNeural` `--rate +10%` | voix et débit (edge-tts : `edge-tts --list-voices`) |
 | `--style slides\|card` | texte narré en grand, ou carte de titre + sous-titres incrustés |
@@ -61,6 +64,25 @@ Les résultats sont dans `data/output/<titre-du-livre>/` :
 `episode_001.mp4`, `episode_001.srt`, `episode_001.jpg` et `manifest.json`.
 Les textes découpés sont dans `data/episodes/` pour relecture. La synthèse vocale
 est mise en cache : une génération interrompue reprend là où elle s'était arrêtée.
+
+### Mode résumé
+
+Avec `--narration resume`, chaque épisode est résumé par Claude (API Anthropic)
+avant la synthèse vocale : un chapitre de 30 minutes devient par exemple un
+épisode d'environ 5 minutes (`--summary-minutes`). Le résumé est fidèle au
+texte, rédigé pour être écouté (prose continue, sans titres ni listes), et la
+description YouTube précise qu'il a été rédigé avec l'aide d'une IA.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...        # clé API : https://console.anthropic.com/
+python main.py build data/input/mon_livre.epub --narration resume --summary-minutes 6
+```
+
+Les résumés sont enregistrés dans `data/episodes/<livre>/episode_001.resume.<id>.txt`.
+Vous pouvez les relire et les corriger : relancez ensuite la génération avec
+`--force` pour refaire la vidéo à partir de votre version (aucun nouvel appel à
+l'API tant que le texte du chapitre et les réglages ne changent pas). Modèle et
+niveau d'effort se règlent dans `config.py` (`summary_model`, `summary_effort`).
 
 ### 2. Validation par le créateur de la chaîne
 
@@ -114,8 +136,8 @@ python -m pytest -q tests
 ```
 
 Les tests couvrent la lecture des 4 formats, le nettoyage, le découpage, le
-script, un montage complet (moteur `silent`) et le circuit de validation /
-publication (client YouTube simulé).
+script, le mode résumé (client Claude simulé), un montage complet (moteur
+`silent`) et le circuit de validation / publication (client YouTube simulé).
 
 ## Remarques
 
@@ -124,5 +146,5 @@ publication (client YouTube simulé).
 - La description indique que la narration est une voix de synthèse.
 - `edge-tts` et `gTTS` nécessitent une connexion Internet ; `pyttsx3` fonctionne
   hors-ligne (installer `espeak-ng` sous Linux).
-- La narration est une lecture fidèle du texte. Un mode « résumé » pourrait être
-  ajouté dans `scripter.py` (par exemple via un modèle de langage).
+- Le mode résumé est facturé à l'usage par l'API Anthropic (un appel par épisode,
+  dont le texte du chapitre en entrée).

@@ -36,7 +36,12 @@ CONFIG = {
     "max_episodes": None,  # limiter le nombre d'épisodes générés (None = tous)
 
     # --- Narration ---------------------------------------------------------
-    "narration_mode": "fidele",  # lecture fidèle du texte
+    # "fidele" : lecture intégrale du texte
+    # "resume" : chaque épisode est résumé par Claude (API Anthropic) avant la lecture
+    "narration_mode": "fidele",
+    "summary_minutes": 5,  # durée visée d'un épisode résumé
+    "summary_model": "claude-opus-5-5",
+    "summary_effort": "medium",  # "low", "medium", "high"…
     "add_intro": True,
     "add_outro": True,
     "segment_max_chars": 220,  # taille max d'un segment (diapo / sous-titre)
