@@ -29,6 +29,10 @@ _FONT_CANDIDATES = {
         "/Library/Fonts/Georgia.ttf",
         "/System/Library/Fonts/Supplemental/Georgia.ttf",
         "C:/Windows/Fonts/georgia.ttf",
+        # Termux (`pkg install ttf-dejavu`) puis polices système d'Android
+        "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSerif.ttf",
+        "/system/fonts/NotoSerif-Regular.ttf",
+        "/system/fonts/Roboto-Regular.ttf",
         "DejaVuSerif.ttf",
     ],
     "bold": [
@@ -37,6 +41,10 @@ _FONT_CANDIDATES = {
         "/Library/Fonts/Arial Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "C:/Windows/Fonts/arialbd.ttf",
+        "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/system/fonts/NotoSerif-Bold.ttf",
+        "/system/fonts/Roboto-Bold.ttf",
+        "/system/fonts/Roboto-Regular.ttf",
         "DejaVuSans-Bold.ttf",
     ],
 }
@@ -53,6 +61,9 @@ class Slide:
     duration: float
 
 
+_font_warning_shown = False
+
+
 @lru_cache(maxsize=64)
 def _font(kind: str, size: int, custom: str | None = None) -> ImageFont.FreeTypeFont:
     for candidate in ([custom] if custom else []) + _FONT_CANDIDATES[kind]:
@@ -60,8 +71,11 @@ def _font(kind: str, size: int, custom: str | None = None) -> ImageFont.FreeType
             return ImageFont.truetype(candidate, size)
         except OSError:
             continue
-    print("Avertissement : aucune police TrueType trouvée, police par défaut utilisée.",
-          file=sys.stderr)
+    global _font_warning_shown
+    if not _font_warning_shown:
+        _font_warning_shown = True
+        print("Avertissement : aucune police TrueType trouvée, police par défaut utilisée "
+              "(indiquez-en une avec `font_path` dans config.py).", file=sys.stderr)
     return ImageFont.load_default(size)
 
 
