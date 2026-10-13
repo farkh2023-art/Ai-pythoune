@@ -215,6 +215,83 @@ class SlideRenderer:
         return img
 
 
+class OverlayRenderer(SlideRenderer):
+    """Calques transparents (RGBA) posés sur les illustrations du style « illustre »."""
+
+    VEIL = (0, 0, 0, 150)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base = Image.new("RGBA", self.size, (0, 0, 0, 0))
+        self._veil = False  # voile sombre plein écran (titre, carte de fin)
+
+    def _frame(self, progress):
+        img = Image.new("RGBA", self.size, self.VEIL if self._veil else (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        w, h = self.size
+        header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
+        font = _font("bold", self._px(30), self.custom_font)
+        x, y = self._px(60), self._px(50)
+        left, top, right, bottom = draw.textbbox((x, y), header, font=font)
+        pad = self._px(14)
+        draw.rounded_rectangle((left - pad, top - pad, right + pad, bottom + pad),
+                               radius=self._px(12), fill=(0, 0, 0, 140))
+        draw.text((x, y), header, font=font, fill=self.accent)
+        if progress is not None:
+            bar_y, bar_h = h - self._px(14), self._px(6)
+            draw.rectangle((0, bar_y, w, bar_y + bar_h), fill=(0, 0, 0, 120))
+            draw.rectangle((0, bar_y, round(w * progress), bar_y + bar_h), fill=self.accent)
+        return img, draw
+
+    def title_slide(self, subtitle=None):
+        self._veil = True
+        try:
+            return super().title_slide(subtitle)
+        finally:
+            self._veil = False
+
+    def end_slide(self, last):
+        self._veil = True
+        try:
+            return super().end_slide(last)
+        finally:
+            self._veil = False
+
+    def caption_slide(self, text: str, progress: float) -> Image.Image:
+        img, draw = self._frame(progress)
+        w, h = self.size
+        font, lines, lh = _fit_text(draw, text, "bold", w - self._px(260), self._px(230),
+                                    self._px(44), self._px(26), self.custom_font)
+        box_h = len(lines) * lh + self._px(50)
+        box_top = h - self._px(60) - box_h
+        draw.rounded_rectangle((self._px(100), box_top, w - self._px(100), box_top + box_h),
+                               radius=self._px(18), fill=(0, 0, 0, 170))
+        _draw_block(draw, lines, font, lh, box_top + box_h / 2, w, (255, 255, 255))
+        return img
+
+
+def generate_overlays(script: Script, timings: list[Timing], out_dir: str | Path, config: dict,
+                      *, book_title: str = "", last_episode: bool = False) -> list[Slide]:
+    """Un calque transparent par segment (titre, bandeau de texte, carte de fin)."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    episode = script.episode
+    renderer = OverlayRenderer(config, book_title, episode.number, episode.title)
+    total = timings[-1].end if timings else 1.0
+    slides = []
+    for i, timing in enumerate(timings):
+        if timing.kind == "intro":
+            img = renderer.title_slide(book_title)
+        elif timing.kind == "outro":
+            img = renderer.end_slide(last_episode)
+        else:
+            img = renderer.caption_slide(timing.text, timing.start / total)
+        path = out_dir / f"overlay_{i:04d}.png"
+        img.save(path, compress_level=1)
+        slides.append(Slide(path, timing.end - timing.start))
+    return slides
+
+
 def generate(script: Script, timings: list[Timing], out_dir: str | Path, config: dict, *,
              book_title: str = "", last_episode: bool = False) -> list[Slide]:
     """Produit une image par segment ; retourne les diapositives et leur durée."""
@@ -242,10 +319,21 @@ def generate(script: Script, timings: list[Timing], out_dir: str | Path, config:
     return slides
 
 
+def plain_background(path: str | Path, config: dict) -> Path:
+    """Fond dégradé du thème, utilisé quand aucune illustration n'est trouvée."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cfg = {**config, "background_image": None}
+    _background(cfg, tuple(config.get("resolution", (1920, 1080)))).save(path, quality=92)
+    return path
+
+
 def thumbnail(path: str | Path, config: dict, *, book_title: str, episode_number: int,
-              episode_title: str) -> Path:
-    """Miniature YouTube 1280×720."""
+              episode_title: str, background: str | Path | None = None) -> Path:
+    """Miniature YouTube 1280×720 (sur l'illustration de l'épisode si fournie)."""
     cfg = {**config, "resolution": (1280, 720)}
+    if background:
+        cfg["background_image"] = background
     img = SlideRenderer(cfg, book_title, episode_number, episode_title).title_slide(book_title)
     path = Path(path)
     img.save(path, quality=90)

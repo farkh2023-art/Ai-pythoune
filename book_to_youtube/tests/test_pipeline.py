@@ -108,3 +108,26 @@ def test_max_episodes_keeps_series_numbering(tmp_path, config):
     manifest = main.main(book, {**config, "max_episodes": 1})
     (ep,) = uploader.load_manifest(manifest)["episodes"]
     assert "1/3" in ep["description"]
+
+
+def test_build_illustrated_style(tmp_path, config, monkeypatch):
+    from test_illustrations import FakeCommons, page
+    from modules import illustrations
+
+    fake = FakeCommons({"phrase": [page(1, "Une phrase.jpg", index=1),
+                                   page(2, "Autre phrase.jpg", index=2)]})
+    real_client = illustrations.CommonsClient
+    monkeypatch.setattr(illustrations, "CommonsClient",
+                        lambda cache_dir, width=1920: real_client(cache_dir, width, fetch=fake))
+    body = " ".join(["Une phrase assez banale sur la plage."] * 60)
+    book = tmp_path / "livre.txt"
+    book.write_text(f"Chapitre 1\n\n{body}", encoding="utf-8")
+    manifest = main.main(book, {**config, "visual_style": "illustre", "scene_seconds": 10})
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    video = manifest.parent / ep["video"]
+    duration = float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(video)], capture_output=True, text=True, check=True).stdout)
+    assert abs(duration - ep["duration"]) < 0.3
+    assert len(ep["image_credits"]) == 2
+    assert "Wikimedia Commons" in ep["description"] and "Jean Photo" in ep["description"]

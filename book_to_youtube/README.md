@@ -70,7 +70,7 @@ Options utiles :
 | `--summary-minutes 5` | durée visée d'un épisode résumé |
 | `--tts edge\|gtts\|pyttsx3\|silent` | moteur de synthèse vocale (`silent` = test du montage sans voix) |
 | `--voice fr-FR-HenriNeural` `--rate +10%` | voix et débit (edge-tts : `edge-tts --list-voices`) |
-| `--style slides\|card` | texte narré en grand, ou carte de titre + sous-titres incrustés |
+| `--style slides\|card\|illustre` | texte narré en grand, carte de titre + sous-titres, ou illustrations en plein écran (voir ci-dessous) |
 | `--background image.jpg` | image de fond (floutée et assombrie automatiquement) |
 | `--resolution 1280x720` | résolution (défaut 1920×1080) |
 | `--episodes 1,3,5-7` / `--max-episodes 2` | ne générer qu'une partie de la série |
@@ -80,6 +80,33 @@ Les résultats sont dans `data/output/<titre-du-livre>/` :
 `episode_001.mp4`, `episode_001.srt`, `episode_001.jpg` et `manifest.json`.
 Les textes découpés sont dans `data/episodes/` pour relecture. La synthèse vocale
 est mise en cache : une génération interrompue reprend là où elle s'était arrêtée.
+
+### Style illustré (images libres de droits)
+
+Avec `--style illustre`, chaque épisode est découpé en scènes d'environ 40 s
+(`--scene-seconds`). Pour chaque scène, les mots les plus caractéristiques du
+texte servent à chercher une image sur **Wikimedia Commons**. Elle s'affiche en
+plein écran avec un zoom ou un travelling lent (`--no-zoom` pour des images
+fixes), et le texte lu apparaît dans un bandeau en bas.
+
+```bash
+python main.py build data/input/livre.pdf --style illustre --theme "veld Afrique du Sud" --image-hint painting
+```
+
+- Seules les images sous licence libre sont retenues (domaine public, CC0,
+  CC BY, CC BY-SA). Leurs crédits (titre, auteur, licence, lien) sont ajoutés
+  automatiquement à la description YouTube, comme l'exigent les licences CC BY.
+- `--theme` donne une recherche de secours quand une scène ne donne rien, et
+  `--image-hint` ajoute un mot à chaque recherche (« painting » donne souvent
+  des tableaux anciens, plus cohérents pour un roman).
+- La recherche se fait par mots-clés : les images illustrent l'ambiance (mer,
+  forêt, navire…), pas la scène exacte. Les descriptions de Commons étant
+  surtout en anglais, `--theme` et `--image-hint` en anglais donnent souvent de
+  meilleurs résultats.
+- **Regardez chaque épisode avant de le valider** : Commons n'a pas de filtre
+  de contenu, et une image peut être hors sujet ou inadaptée à votre chaîne.
+- Les images et les recherches sont gardées dans `data/images/commons/` :
+  relancer une génération ne retélécharge rien.
 
 ### Mode résumé
 
@@ -152,8 +179,9 @@ python -m pytest -q tests
 ```
 
 Les tests couvrent la lecture des 4 formats, le nettoyage, le découpage, le
-script, le mode résumé (client Claude simulé), un montage complet (moteur
-`silent`) et le circuit de validation / publication (client YouTube simulé).
+script, le mode résumé (client Claude simulé), les illustrations (API Commons
+simulée), un montage complet (moteur `silent`) et le circuit de validation /
+publication (client YouTube simulé).
 
 ## Remarques
 

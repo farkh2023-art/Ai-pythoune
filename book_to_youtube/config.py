@@ -60,7 +60,13 @@ CONFIG = {
     # --- Visuels -----------------------------------------------------------
     # "slides" : le texte narré s'affiche en grand sur chaque diapositive
     # "card"   : carte fixe (titre) + sous-titres incrustés en bas d'écran
+    # "illustre" : illustrations libres de droits (Wikimedia Commons) en plein écran,
+    #              une par scène, avec zoom lent et texte dans un bandeau
     "visual_style": "slides",
+    "scene_seconds": 40,  # durée visée d'une scène illustrée
+    "ken_burns": True,  # zoom / travelling lent sur les illustrations
+    "illustration_theme": None,  # recherche de secours, ex. "veld Afrique du Sud"
+    "illustration_hint": "",  # ajouté à chaque recherche, ex. "painting"
     "resolution": (1920, 1080),
     "background": ((22, 27, 45), (48, 36, 74)),  # dégradé haut -> bas
     "text_color": (245, 245, 245),

@@ -18,14 +18,16 @@ import unicodedata
 from pathlib import Path
 
 from config import CONFIG
-from modules import (cleaner, reader, scripter, splitter, subtitles, summarizer, tts, uploader,
-                     video, visuals)
+from modules import (cleaner, illustrations, reader, scripter, splitter, subtitles, summarizer,
+                     tts, uploader, video, visuals)
 
 DESCRIPTION_LABELS = {
     "fr": {"episode": "Épisode", "voice": "Narration : voix de synthèse.",
-           "summary": "Résumé du texte original, rédigé avec l'aide d'une IA.", "by": "de"},
+           "summary": "Résumé du texte original, rédigé avec l'aide d'une IA.", "by": "de",
+           "images": "Illustrations (Wikimedia Commons, licences libres) :"},
     "en": {"episode": "Episode", "voice": "Narration: synthetic voice.",
-           "summary": "Summary of the original text, written with AI assistance.", "by": "by"},
+           "summary": "Summary of the original text, written with AI assistance.", "by": "by",
+           "images": "Illustrations (Wikimedia Commons, free licenses):"},
 }
 
 
@@ -82,18 +84,38 @@ def main(book_path: str | Path, config: dict | None = None,
         audio = tts.synthesize(script, Path(config["audio_dir"]) / slug / f"{name}.wav",
                                config)                                     # 5. Voix off
         srt = subtitles.write_srt(audio.timings, out_dir / f"{name}.srt")
-        slides = visuals.generate(script, audio.timings,                   # 6. Visuels
-                                  Path(config["images_dir"]) / slug / name, config,
-                                  book_title=book.title, last_episode=ep.number == total)
-        video.assemble(audio.path, slides, video_path, config)             # 7. Montage
+        images_dir = Path(config["images_dir"]) / slug / name
+        last = ep.number == total
+        credits: list[str] = []
+        cover = None
+        if config["visual_style"] == "illustre":                           # 6. Visuels
+            scenes = illustrations.plan_scenes(audio.timings, config["scene_seconds"])
+            illustrations.illustrate(scenes, config, Path(config["images_dir"]) / "commons",
+                                     log=print)
+            n_images = len({s.illustration.path for s in scenes if s.illustration})
+            print(f"    illustrations : {n_images} image(s) pour {len(scenes)} scène(s)"
+                  + ("" if n_images else " — aucune trouvée, fond uni utilisé"))
+            overlays = visuals.generate_overlays(script, audio.timings, images_dir, config,
+                                                 book_title=book.title, last_episode=last)
+            fallback = visuals.plain_background(images_dir / "fond.jpg", config)
+            video.assemble_illustrated(audio.path, scenes, overlays, video_path,  # 7. Montage
+                                       config, images_dir, fallback)
+            credits = illustrations.credits(scenes)
+            cover = next((s.illustration.path for s in scenes if s.illustration), None)
+        else:
+            slides = visuals.generate(script, audio.timings, images_dir, config,
+                                      book_title=book.title, last_episode=last)
+            video.assemble(audio.path, slides, video_path, config)
         thumb = visuals.thumbnail(out_dir / f"{name}.jpg", config, book_title=book.title,
-                                  episode_number=ep.number, episode_title=ep.title)
+                                  episode_number=ep.number, episode_title=ep.title,
+                                  background=cover)
 
         uploader.upsert_episode(manifest, {                                # 8. À valider
             "number": ep.number,
             "title": ep.title,
             "youtube_title": youtube_title(book.title, ep, config),
-            "description": youtube_description(book, ep, total, config),
+            "description": youtube_description(book, ep, total, config, credits),
+            "image_credits": credits,
             "tags": list(dict.fromkeys([*config.get("tags", []), book.title]
                                        + ([book.author] if book.author else []))),
             "language": config["language"],
@@ -123,7 +145,8 @@ def youtube_title(book_title: str, ep: splitter.Episode, config: dict) -> str:
     return title
 
 
-def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, config: dict) -> str:
+def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, config: dict,
+                        credits: list[str] | None = None) -> str:
     labels = DESCRIPTION_LABELS.get(config["language"], DESCRIPTION_LABELS["fr"])
     excerpt = ep.text.replace("\n\n", " ")
     if len(excerpt) > 300:
@@ -131,7 +154,22 @@ def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, con
     author = f" {labels['by']} {book.author}" if book.author else ""
     return (f"{book.title}{author} — {labels['episode']} {ep.number}/{total} : {ep.title}\n\n"
             f"{excerpt}\n\n{labels['voice']}"
-            + (f" {labels['summary']}" if config.get("narration_mode") == "resume" else ""))
+            + (f" {labels['summary']}" if config.get("narration_mode") == "resume" else "")
+            + _credits_block(credits or [], labels))
+
+
+def _credits_block(credits: list[str], labels: dict, budget: int = 3500) -> str:
+    """Crédits des illustrations, dans la limite de taille d'une description YouTube."""
+    if not credits:
+        return ""
+    lines, size = [], 0
+    for credit in credits:
+        if size + len(credit) > budget:
+            lines.append("…")
+            break
+        lines.append(f"- {credit}")
+        size += len(credit) + 3
+    return f"\n\n{labels['images']}\n" + "\n".join(lines)
 
 
 def parse_numbers(value: str | None) -> list[int] | None:
@@ -166,7 +204,12 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--tts", choices=["edge", "gtts", "pyttsx3", "silent"], help="moteur TTS")
     b.add_argument("--voice", help="voix TTS (ex. fr-FR-HenriNeural)")
     b.add_argument("--rate", help="vitesse edge-tts (ex. +10%%)")
-    b.add_argument("--style", choices=["slides", "card"], help="style visuel")
+    b.add_argument("--style", choices=["slides", "card", "illustre"],
+                   help="style visuel (illustre : images Wikimedia Commons + zoom lent)")
+    b.add_argument("--scene-seconds", type=float, help="durée d'une scène illustrée (s)")
+    b.add_argument("--no-zoom", action="store_true", help="illustrations fixes, sans zoom lent")
+    b.add_argument("--theme", help="recherche d'image de secours, ex. « veld Afrique du Sud »")
+    b.add_argument("--image-hint", help="mot ajouté à chaque recherche, ex. « painting »")
     b.add_argument("--background", type=Path, help="image de fond")
     b.add_argument("--resolution", help="ex. 1280x720")
     b.add_argument("--episodes", help="ne générer que ces épisodes (ex. 1,3,5-7)")
@@ -200,8 +243,12 @@ def cli(argv: list[str] | None = None) -> int:
             "language": args.lang, "narration_mode": args.narration,
             "summary_minutes": args.summary_minutes, "tts_engine": args.tts, "voice": args.voice,
             "tts_rate": args.rate, "visual_style": args.style,
+            "scene_seconds": args.scene_seconds, "illustration_theme": args.theme,
+            "illustration_hint": args.image_hint,
             "background_image": args.background, "max_episodes": args.max_episodes,
         }.items() if value is not None}
+        if args.no_zoom:
+            overrides["ken_burns"] = False
         if args.resolution:
             w, h = (int(v) for v in args.resolution.lower().split("x"))
             overrides["resolution"] = (w, h)
