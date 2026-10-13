@@ -1,0 +1,22 @@
+# Lecture des livres
+PyMuPDF>=1.24        # PDF
+EbookLib>=0.18       # EPUB
+python-docx>=1.1     # DOCX
+
+# Synthèse vocale (au moins un moteur)
+edge-tts>=6.1        # en ligne, voix neuronales (par défaut)
+gTTS>=2.5            # en ligne, alternative
+# pyttsx3>=2.90      # hors-ligne (décommenter si besoin, nécessite espeak sous Linux)
+
+# Visuels
+Pillow>=10.1
+
+# Publication YouTube (YouTube Data API v3)
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.1
+google-auth-httplib2>=0.2
+
+# Tests
+pytest>=7
+
+# Dépendance système : ffmpeg (et ffprobe) doivent être dans le PATH.
