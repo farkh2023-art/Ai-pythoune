@@ -121,6 +121,13 @@ Les résultats sont dans `data/output/<titre-du-livre>/` :
 Les textes découpés sont dans `data/episodes/` pour relecture. La synthèse vocale
 est mise en cache : une génération interrompue reprend là où elle s'était arrêtée.
 
+Titres des épisodes : un livre sans chapitres détectés (découpage par durée ou
+par mots) donne des épisodes « Partie 1 », « Partie 2 »… Avec la clé Claude,
+chacun reçoit un vrai titre court et évocateur (ex. « Le serment du sommet »),
+affiché dans le générique et repris sur YouTube. Les titres sont gardés dans
+`data/episodes/<livre>/titres.json`, modifiable à la main (régénérez ensuite
+l'épisode) ; `episode_titles = "off"` dans `config.py` pour s'en passer.
+
 ### Livres scannés (OCR)
 
 Un PDF scanné (photos ou captures d'écran des pages, sans texte sélectionnable)

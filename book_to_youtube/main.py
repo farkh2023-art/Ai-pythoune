@@ -21,7 +21,7 @@ from pathlib import Path
 
 from config import CONFIG
 from modules import (branding, cleaner, illustrations, ocr, prompts, reader, scripter,
-                     splitter, subtitles, summarizer, tts, uploader, video, visuals)
+                     splitter, subtitles, summarizer, titles, tts, uploader, video, visuals)
 
 DESCRIPTION_LABELS = {
     "fr": {"episode": "Épisode", "voice": "Narration : voix de synthèse.",
@@ -79,6 +79,11 @@ def main(book_path: str | Path, config: dict | None = None,
     episodes = splitter.split(texte, config)                    # 3. Découpage
     if not episodes:
         raise SystemExit("Aucun texte exploitable dans ce livre.")
+    # Titres « Partie N » remplacés par des titres proposés par Claude. Le titre
+    # d'origine reste utilisé pour le résumé (cache inchangé, mêmes scènes).
+    split_titles = {ep.number: ep.title for ep in episodes}
+    episodes = titles.name_episodes(episodes, config, book_title=book.title,
+                                    cache_dir=Path(config["episodes_dir"]) / slug, log=print)
 
     splitter.save(episodes, Path(config["episodes_dir"]) / slug)
     manifest_path = out_dir / "manifest.json"
@@ -119,9 +124,11 @@ def main(book_path: str | Path, config: dict | None = None,
         if config["narration_mode"] == "resume":
             progress("resume", ep.number, ep.title)
             original = ep
-            ep = summarizer.summarize_episode(ep, config, book_title=book.title,
-                                              author=book.author, total_episodes=total,
-                                              cache_dir=Path(config["episodes_dir"]) / slug)
+            ep = summarizer.summarize_episode(
+                dataclasses.replace(ep, title=split_titles[ep.number]), config,
+                book_title=book.title, author=book.author, total_episodes=total,
+                cache_dir=Path(config["episodes_dir"]) / slug)
+            ep = dataclasses.replace(ep, title=original.title)
             print(f"    résumé : {ep.word_count} mots "
                   f"({summarizer.summary_ratio(original, ep):.0%} de l'original)")
 

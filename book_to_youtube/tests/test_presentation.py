@@ -53,3 +53,14 @@ def test_cli_presentation_command(tmp_path):
     assert main.write_presentation(book, config, client=client) == "Première version."
     assert main.write_presentation(book, config, client=client) == "Première version."  # gardée
     assert main.write_presentation(book, config, force=True, client=client) == "Seconde version."
+
+
+def test_intro_card_shows_presentation_on_a_dark_panel():
+    from modules import visuals
+    config = {"resolution": (1280, 720), "language": "fr"}
+    text = "Dans les montagnes du Rif, un homme bâtit une cabane au sommet. " * 4
+    for cls in (visuals.SlideRenderer, visuals.OverlayRenderer):
+        card = cls(config, "Le Livre", 1, "Le sage du sommet", presentation=text).intro_card()
+        bare = cls(config, "Le Livre", 1, "Le sage du sommet").intro_card()
+        assert card.size == (1280, 720) and card.mode == bare.mode
+        assert card.tobytes() != bare.tobytes()

@@ -35,6 +35,18 @@ _FONT_CANDIDATES = {
         "/system/fonts/Roboto-Regular.ttf",
         "DejaVuSerif.ttf",
     ],
+    # Sans empattement, pour les paragraphes lus sur petit écran (présentation).
+    "sans": [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/system/fonts/Roboto-Regular.ttf",
+        "/system/fonts/NotoSans-Regular.ttf",
+        "DejaVuSans.ttf",
+    ],
     "bold": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
@@ -233,15 +245,19 @@ class SlideRenderer:
             font = _font("regular", self._px(34), self.custom_font)
             blocks.append(("line", (self.author, font, muted), self._px(46), 0))
         if show_presentation and self.presentation:
-            font, lines, lh = _fit_text(draw, self.presentation, "regular", w - self._px(420),
-                                        self._px(250), self._px(34), self._px(22), self.custom_font)
-            max_lines = max(1, self._px(250) // lh)
+            # Lisible sur téléphone : grande police sans empattement, texte presque
+            # blanc sur un panneau sombre (le fond peut être une image claire).
+            box_h = self._px(330)
+            font, lines, lh = _fit_text(draw, self.presentation, "sans", w - self._px(400),
+                                        box_h, self._px(40), self._px(28), self.custom_font)
+            max_lines = max(1, box_h // lh)
             if len(lines) > max_lines:  # trop long même en petit : on coupe proprement
                 lines = lines[:max_lines]
                 lines[-1] = lines[-1].rstrip(" .,;") + "…"
-            blocks[-1] = (*blocks[-1][:3], self._px(28))
-            blocks.append(("text", (lines, font, lh, muted), len(lines) * lh, 0))
-        blocks[-1] = (*blocks[-1][:3], self._px(40))
+            bright = tuple(round(c * 0.96) for c in self.text_color)
+            blocks[-1] = (*blocks[-1][:3], self._px(40))
+            blocks.append(("panel", (lines, font, lh, bright), len(lines) * lh, 0))
+        blocks[-1] = (*blocks[-1][:3], self._px(64 if blocks[-1][0] == "panel" else 40))
         font = _font("bold", self._px(40), self.custom_font)
         blocks.append(("line", (f"{self.labels['episode']} {self.number}", font, self.accent),
                        self._px(52), self._px(6)))
@@ -250,9 +266,22 @@ class SlideRenderer:
         blocks.append(("text", (lines, font, lh, self.text_color), len(lines) * lh, 0))
 
         total = sum(b[2] + b[3] for b in blocks)
-        y = max(self._px(110), (h - total) / 2)
+        y = max(self._px(100), (h - total) / 2)
         for kind, content, height, gap in blocks:
-            if kind == "image":
+            if kind == "panel":
+                lines, font, lh, color = content
+                widest = max(draw.textlength(line, font=font) for line in lines)
+                pad_x, pad_y = self._px(44), self._px(22)
+                layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                ImageDraw.Draw(layer).rounded_rectangle(
+                    (w / 2 - widest / 2 - pad_x, y - pad_y, w / 2 + widest / 2 + pad_x,
+                     y + height + pad_y), radius=self._px(22), fill=(0, 0, 0, 150))
+                mode = img.mode
+                img = Image.alpha_composite(img.convert("RGBA"), layer)
+                img = img if mode == "RGBA" else img.convert(mode)
+                draw = ImageDraw.Draw(img)
+                _draw_block(draw, lines, font, lh, y + height / 2, w, color)
+            elif kind == "image":
                 img.paste(content, (round((w - content.width) / 2), round(y)), content)
             elif kind == "rule":
                 draw.rectangle((w / 2 - self._px(80), y, w / 2 + self._px(80), y + height),

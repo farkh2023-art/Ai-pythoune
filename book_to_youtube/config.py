@@ -44,6 +44,9 @@ CONFIG = {
     "summary_minutes": 5,  # durée visée d'un épisode résumé
     "summary_model": "claude-opus-5-5",
     "summary_effort": "medium",  # "low", "medium", "high"…
+    # Titres des épisodes sans chapitre (« Partie N ») proposés par Claude :
+    # "auto" (si une clé est configurée) ou "off".
+    "episode_titles": "auto",
     # --- OCR des PDF scannés (pages en images) -------------------------------
     # "auto" : Claude si une clé est configurée, sinon Tesseract s'il est installé ;
     # "claude", "tesseract" ou "off".
