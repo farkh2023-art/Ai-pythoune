@@ -51,6 +51,12 @@ avec **pypdf** (pur Python, plus lent mais équivalent pour ce projet). Conseils
 pas être interrompu écran éteint, et `cp ~/storage/downloads/livre.pdf data/input/`
 pour récupérer un livre téléchargé.
 
+Fonctions Claude (résumé, présentation, prompts d'images, OCR) : inutile
+d'installer le paquet `anthropic` sous Termux (sa dépendance pydantic-core se
+compile mal) ; sans lui, l'application appelle l'API directement en HTTP. Il
+suffit de définir la clé, par exemple dans `~/.bashrc` :
+`export ANTHROPIC_API_KEY=sk-ant-…`.
+
 ## Tableau de bord
 
 Tout le parcours (import du livre → génération → validation → publication) peut
