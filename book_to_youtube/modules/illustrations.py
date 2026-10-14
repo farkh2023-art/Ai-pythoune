@@ -25,6 +25,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .splitter import count_words
 from .tts import Timing
 
 API_URL = "https://commons.wikimedia.org/w/api.php"
@@ -82,6 +83,7 @@ class Illustration:
     author: str
     license: str
     source_url: str
+    personal: bool = False  # image fournie par le créateur (pas de crédit à afficher)
 
     def credit(self) -> str:
         return f"{self.title} — {self.author} — {self.license} — {self.source_url}"
@@ -94,6 +96,7 @@ class Scene:
     text: str
     illustration: Illustration | None = None
     queries: list[str] = field(default_factory=list)
+    number: int = 0
 
     @property
     def duration(self) -> float:
@@ -101,30 +104,54 @@ class Scene:
 
 
 # --- Scènes ----------------------------------------------------------------------
+#
+# Les scènes sont définies sur les segments du script *avant* la synthèse vocale,
+# d'après une durée estimée (nombre de mots / débit). Elles sont donc connues dès
+# l'import du livre : les prompts d'images et le dossier « scene_01.jpg… » du
+# créateur correspondent exactement aux scènes de la vidéo finale. Seuls les
+# segments de texte comptent : modifier le générique ne décale aucune scène.
 
-def plan_scenes(timings: list[Timing], scene_seconds: float = 40) -> list[Scene]:
-    """Regroupe les segments en scènes ; une scène change toujours entre deux segments."""
-    scenes: list[Scene] = []
-    current: list[Timing] = []
-    for timing in timings:
-        current.append(timing)
-        if timing.kind == "body" and current[-1].end - current[0].start >= scene_seconds:
-            scenes.append(_scene(current))
-            current = []
-    if current:
-        if scenes and current[-1].end - current[0].start < scene_seconds / 3:
-            # Petite fin (outro…) : on la rattache à la scène précédente.
-            last = scenes.pop()
-            scenes.append(Scene(last.start, current[-1].end,
-                                f"{last.text} {_scene(current).text}".strip()))
+def plan_scene_ranges(segments: list, config: dict) -> list[tuple[int, int]]:
+    """(premier, dernier) indice de segment « body » de chaque scène."""
+    wpm = config.get("words_per_minute", 150)
+    target = float(config.get("scene_seconds", 40))
+    pause = float(config.get("pause_between_segments", 0.25))
+    body = [i for i, seg in enumerate(segments) if seg.kind == "body"]
+    ranges: list[tuple[int, int]] = []
+    first, elapsed = None, 0.0
+    for i in body:
+        if first is None:
+            first, elapsed = i, 0.0
+        elapsed += count_words(segments[i].text) / wpm * 60 + pause
+        if elapsed >= target:
+            ranges.append((first, i))
+            first = None
+    if first is not None:
+        if ranges and elapsed < target / 3:
+            ranges[-1] = (ranges[-1][0], body[-1])  # petite fin : rattachée à la précédente
         else:
-            scenes.append(_scene(current))
+            ranges.append((first, body[-1]))
+    return ranges
+
+
+def scene_texts(segments: list, ranges: list[tuple[int, int]]) -> list[str]:
+    return [" ".join(seg.text for seg in segments[a:b + 1] if seg.kind == "body")
+            for a, b in ranges]
+
+
+def plan_scenes(timings: list[Timing], ranges: list[tuple[int, int]]) -> list[Scene]:
+    """Scènes minutées : la 1re couvre aussi le générique, la dernière la conclusion."""
+    if not timings:
+        return []
+    if not ranges:
+        return [Scene(0.0, timings[-1].end, "", number=1)]
+    texts = scene_texts(timings, ranges)
+    scenes = []
+    for k, (a, _b) in enumerate(ranges):
+        start = 0.0 if k == 0 else timings[a].start
+        end = timings[-1].end if k == len(ranges) - 1 else timings[ranges[k + 1][0]].start
+        scenes.append(Scene(start, end, texts[k], number=k + 1))
     return scenes
-
-
-def _scene(timings: list[Timing]) -> Scene:
-    text = " ".join(t.text for t in timings if t.kind == "body")
-    return Scene(timings[0].start, timings[-1].end, text)
 
 
 # --- Mots-clés --------------------------------------------------------------------
@@ -254,31 +281,68 @@ def _plain(markup: str) -> str:
     return unicodedata.normalize("NFKC", re.sub(r"\s+", " ", text)).strip()
 
 
+# --- Images personnelles -------------------------------------------------------------
+#
+# data/illustrations/<livre>/episode_001/scene_01.jpg (ou .png, .webp) : l'image
+# déposée par le créateur pour la scène 1 de l'épisode 1. Elle a priorité sur
+# Wikimedia Commons.
+
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def illustrations_root(config: dict) -> Path:
+    return Path(config.get("illustrations_dir") or Path(config["data_dir"]) / "illustrations")
+
+
+def episode_dir(config: dict, slug: str, number: int) -> Path:
+    return illustrations_root(config) / slug / f"episode_{number:03d}"
+
+
+def user_image(folder: Path, scene_number: int) -> Path | None:
+    for ext in IMAGE_EXTENSIONS:
+        path = folder / f"scene_{scene_number:02d}{ext}"
+        if path.is_file():
+            return path
+    return None
+
+
 # --- Attribution des images aux scènes ----------------------------------------------
 
 def illustrate(scenes: list[Scene], config: dict, cache_dir: str | Path,
-               client: CommonsClient | None = None, log=print) -> list[Scene]:
-    """Choisit une image distincte par scène ; à défaut, réutilise la précédente."""
-    client = client or CommonsClient(cache_dir, width=int(config.get("resolution", (1920,))[0]))
-    build_queries(scenes, config)
+               client: CommonsClient | None = None, log=print,
+               user_dir: Path | None = None) -> list[Scene]:
+    """Image de chaque scène : la vôtre (dossier), sinon Wikimedia Commons, sinon la précédente."""
+    source = config.get("illustration_source", "dossier+commons")
+    use_commons = "commons" in source
+    if user_dir is not None and "dossier" in source:
+        for scene in scenes:
+            path = user_image(user_dir, scene.number)
+            if path is not None:
+                scene.illustration = Illustration(path, f"Scène {scene.number}", "", "", "",
+                                                  personal=True)
+    if use_commons and any(s.illustration is None for s in scenes):
+        client = client or CommonsClient(cache_dir,
+                                         width=int(config.get("resolution", (1920,))[0]))
+        build_queries(scenes, config)
     used: set[int] = set()
     previous: Illustration | None = None
     for scene in scenes:
-        for query in scene.queries:
-            try:
-                results = client.search(query)
-            except Exception as err:  # réseau indisponible, quota…
-                log(f"    illustration : recherche « {query} » impossible ({err})")
-                results = []
-            choice = next((r for r in results if r["pageid"] not in used), None)
-            if choice:
+        if scene.illustration is None and use_commons:
+            for query in scene.queries:
                 try:
-                    scene.illustration = client.download(choice)
-                except Exception as err:
-                    log(f"    illustration : téléchargement impossible ({err})")
-                    continue
-                used.add(choice["pageid"])
-                break
+                    results = client.search(query)
+                except Exception as err:  # réseau indisponible, quota…
+                    log(f"    illustration : recherche « {query} » impossible ({err})")
+                    results = []
+                choice = next((r for r in results if r["pageid"] not in used), None)
+                if choice:
+                    try:
+                        scene.illustration = client.download(choice)
+                    except Exception as err:
+                        log(f"    illustration : téléchargement impossible ({err})")
+                        continue
+                    used.add(choice["pageid"])
+                    break
         if scene.illustration is None:
             scene.illustration = previous
         previous = scene.illustration
@@ -291,7 +355,9 @@ def illustrate(scenes: list[Scene], config: dict, cache_dir: str | Path,
 
 
 def credits(scenes: list[Scene]) -> list[str]:
-    seen = dict.fromkeys(s.illustration.credit() for s in scenes if s.illustration)
+    """Crédits des images Wikimedia Commons (les vôtres n'en ont pas besoin)."""
+    seen = dict.fromkeys(s.illustration.credit() for s in scenes
+                         if s.illustration and not s.illustration.personal)
     return list(seen)
 
 

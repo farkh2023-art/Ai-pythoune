@@ -19,9 +19,10 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
+from . import claude_client
 from .splitter import Episode, count_words
 
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
+FALLBACK_BETA = claude_client.FALLBACK_BETA
 
 PROMPTS = {
     "fr": {
@@ -67,8 +68,7 @@ Guidelines:
 }
 
 
-class SummaryError(RuntimeError):
-    pass
+SummaryError = claude_client.ClaudeError
 
 
 def summarize_episode(episode: Episode, config: dict, *, book_title: str,
@@ -107,33 +107,7 @@ def target_words(episode: Episode, config: dict) -> int:
 
 
 def _call_claude(system: str, prompt: str, config: dict, client=None) -> str:
-    import anthropic
-
-    client = client or anthropic.Anthropic()
-    # Streaming : un chapitre entier peut être long, on évite les délais HTTP.
-    with client.beta.messages.stream(
-        model=config.get("summary_model", "claude-opus-5-5"),
-        max_tokens=16000,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
-        thinking={"type": "adaptive"},
-        output_config={"effort": config.get("summary_effort", "medium")},
-        # Si un filtre de sécurité refuse la requête, l'API la relance sur un
-        # modèle de repli choisi automatiquement.
-        betas=[FALLBACK_BETA],
-        fallbacks="default",
-    ) as stream:
-        response = stream.get_final_message()
-
-    if response.stop_reason == "refusal":
-        raise SummaryError("Claude a refusé de résumer cet extrait : "
-                           f"{getattr(response.stop_details, 'explanation', None) or 'raison non précisée'}")
-    if response.stop_reason == "max_tokens":
-        raise SummaryError("Résumé tronqué (limite de tokens atteinte).")
-    text = "\n\n".join(b.text for b in response.content if b.type == "text").strip()
-    if not text:
-        raise SummaryError("Claude n'a renvoyé aucun texte.")
-    return _clean(text)
+    return _clean(claude_client.ask(system, prompt, config, client, what="ce résumé"))
 
 
 def _clean(text: str) -> str:

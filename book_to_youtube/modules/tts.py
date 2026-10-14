@@ -34,6 +34,7 @@ class Timing:
     end: float
     text: str
     kind: str
+    role: str = ""
 
 
 @dataclass
@@ -179,6 +180,6 @@ def _concatenate(script: Script, wavs: list[Path], out_path: Path, pause: float)
             gap = len(silence) / 2 / SAMPLE_RATE if i < len(wavs) - 1 else 0.0
             if gap:
                 out.writeframes(silence)
-            timings.append(Timing(cursor, cursor + duration + gap, seg.text, seg.kind))
+            timings.append(Timing(cursor, cursor + duration + gap, seg.text, seg.kind, seg.role))
             cursor += duration + gap
     return AudioTrack(path=out_path, duration=cursor, timings=timings)

@@ -14,14 +14,18 @@ from .splitter import Episode, split_sentences
 
 TEMPLATES = {
     "fr": {
-        "intro": "{book}. Épisode {number} : {title}.",
-        "intro_author": "{book}, de {author}. Épisode {number} : {title}.",
+        "welcome": "Bienvenue sur {channel}.",
+        "book": "{book}.",
+        "book_author": "{book}, de {author}.",
+        "episode": "Épisode {number} : {title}.",
         "outro": "Fin de l'épisode {number}. Merci de votre écoute, à bientôt pour la suite.",
         "outro_last": "Fin de l'épisode {number}, et fin du livre. Merci de nous avoir suivis.",
     },
     "en": {
-        "intro": "{book}. Episode {number}: {title}.",
-        "intro_author": "{book}, by {author}. Episode {number}: {title}.",
+        "welcome": "Welcome to {channel}.",
+        "book": "{book}.",
+        "book_author": "{book}, by {author}.",
+        "episode": "Episode {number}: {title}.",
         "outro": "End of episode {number}. Thanks for listening, see you in the next one.",
         "outro_last": "End of episode {number}, and the end of the book. Thanks for listening.",
     },
@@ -51,7 +55,9 @@ _ABBREVIATIONS = {
 @dataclass
 class Segment:
     text: str
-    kind: str = "body"  # "intro", "title", "body", "outro"
+    kind: str = "body"  # "intro", "body", "outro"
+    # Rôle dans le générique : "welcome" (chaîne + livre), "presentation", "episode".
+    role: str = ""
 
 
 @dataclass
@@ -65,8 +71,13 @@ class Script:
 
 
 def make_script(episode: Episode, config: dict | None = None, *, book_title: str = "",
-                author: str | None = None, total_episodes: int | None = None) -> Script:
-    """Construit le script de narration d'un épisode."""
+                author: str | None = None, total_episodes: int | None = None,
+                channel_name: str = "", presentation: str = "") -> Script:
+    """Construit le script de narration d'un épisode.
+
+    Le générique (identique pour chaque épisode, sauf le numéro et le titre) :
+    « Bienvenue sur <chaîne>. <Livre>, de <auteur>. <présentation> Épisode n : titre. »
+    """
     config = config or {}
     lang = config.get("language", "fr")
     tpl = TEMPLATES.get(lang, TEMPLATES["fr"])
@@ -74,10 +85,20 @@ def make_script(episode: Episode, config: dict | None = None, *, book_title: str
     script = Script(episode=episode)
 
     if config.get("add_intro", True):
-        key = "intro_author" if author else "intro"
-        intro = tpl[key].format(book=book_title or episode.title, author=author,
-                                number=episode.number, title=episode.title)
-        script.segments.append(Segment(intro, "intro"))
+        welcome = tpl["welcome"].format(channel=channel_name) if channel_name else ""
+        book = tpl["book_author" if author else "book"].format(
+            book=book_title or episode.title, author=author)
+        announce = tpl["episode"].format(number=episode.number, title=episode.title)
+        presentation = prepare_for_speech(presentation, lang) if (
+            presentation and config.get("read_presentation", True)) else ""
+        if presentation:
+            script.segments.append(Segment(f"{welcome} {book}".strip(), "intro", "welcome"))
+            script.segments.extend(Segment(c, "intro", "presentation")
+                                   for c in chunk_sentences(presentation, max_chars))
+            script.segments.append(Segment(announce, "intro", "episode"))
+        else:
+            script.segments.append(Segment(f"{welcome} {book} {announce}".strip(), "intro",
+                                           "episode"))
 
     for paragraph in episode.text.split("\n\n"):
         paragraph = prepare_for_speech(paragraph, lang)

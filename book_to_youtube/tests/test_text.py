@@ -83,3 +83,23 @@ def test_heading_run_without_body_keeps_only_last():
     text = "\n\n".join(["Chapitre I Le début", "Chapitre II La suite", "Chapitre III La fin", body])
     (episode,) = splitter.split(text, CONFIG)
     assert episode.title == "Chapitre III La fin"
+
+
+def test_intro_with_channel_and_presentation_repeats_per_episode():
+    pres = "Un jeune Écossais part pour l'Afrique du Sud. Il y découvre un complot."
+    scripts = [scripter.make_script(splitter.Episode(n, f"Chapitre {n}", "Le texte. " * 5),
+                                    {"segment_max_chars": 60}, book_title="Le Collier",
+                                    author="John Buchan", total_episodes=3,
+                                    channel_name="Les Grands Récits", presentation=pres)
+               for n in (1, 2)]
+    intros = [[(s.role, s.text) for s in sc.segments if s.kind == "intro"] for sc in scripts]
+    assert intros[0][0] == ("welcome", "Bienvenue sur Les Grands Récits. Le Collier, de John Buchan.")
+    assert [r for r, _ in intros[0]] == ["welcome", "presentation", "presentation", "episode"]
+    assert intros[0][-1][1] == "Épisode 1 : Chapitre 1." and intros[1][-1][1] == "Épisode 2 : Chapitre 2."
+    assert intros[0][:-1] == intros[1][:-1]  # générique identique, seul l'épisode change
+
+
+def test_intro_without_presentation_is_one_sentence():
+    script = scripter.make_script(splitter.Episode(4, "Chapitre IV", "Texte."), {},
+                                  book_title="Le Collier", channel_name="Les Grands Récits")
+    assert script.segments[0].text == "Bienvenue sur Les Grands Récits. Le Collier. Épisode 4 : Chapitre IV."

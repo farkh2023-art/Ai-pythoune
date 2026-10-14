@@ -63,6 +63,10 @@ Ouvrez l'adresse affichée (`http://127.0.0.1:8765/#token=…`). Le tableau de b
 permet de :
 
 - **importer un livre** depuis le téléphone (plus besoin de `cp`) ;
+- régler **votre chaîne** (logo, nom affiché et prononcé, slogan) et la **présentation**
+  de chaque livre, pour le générique ;
+- **préparer les images** : prompts par scène, à copier, et ajout de vos images
+  depuis la galerie, scène par scène ;
 - **lancer la génération** avec un formulaire (découpage, voix, style, illustrations…) ;
 - **suivre la tâche en cours** : épisode, étape (voix, illustrations, montage…), journal
   en direct, annulation ;
@@ -109,6 +113,58 @@ Les résultats sont dans `data/output/<titre-du-livre>/` :
 `episode_001.mp4`, `episode_001.srt`, `episode_001.jpg` et `manifest.json`.
 Les textes découpés sont dans `data/episodes/` pour relecture. La synthèse vocale
 est mise en cache : une génération interrompue reprend là où elle s'était arrêtée.
+
+### Générique de la chaîne
+
+Chaque épisode commence par le même générique, où seuls le numéro et le titre de
+l'épisode changent :
+
+> « Bienvenue sur Le Grenier du Savoir. *Le Collier du prêtre Jean*, de John Buchan.
+> *(présentation du livre)* Épisode 3 : Blaauwildebeestefontein. »
+
+L'image affichée pendant ce temps montre le logo, le nom et le slogan de la chaîne,
+le livre, sa présentation, puis le numéro et le titre de l'épisode. Le petit logo
+apparaît aussi en haut de toutes les images et sur la miniature YouTube.
+
+À régler une fois dans le tableau de bord (section **Ma chaîne**), ou à la main :
+
+- `data/chaine/chaine.json` : `{"nom": "Le GrenieR du SavoiR", "nom_lu": "Le Grenier du
+  Savoir", "slogan": "Le Savoir de demain"}`. `nom_lu` est le nom tel que la voix doit le
+  prononcer, sans tirets bas ni majuscules au milieu des mots.
+- `data/chaine/logo.png` (ou `.jpg` / `.webp`) : de préférence le fichier d'origine, carré.
+- `data/episodes/<livre>/presentation.txt` : la présentation du livre, 3 à 5 phrases.
+  Elle est lue au début de chaque épisode ; avec `read_presentation: False` dans
+  `config.py`, elle est seulement affichée.
+
+### Vos propres images, scène par scène
+
+1. **Préparer les prompts** dès l'import du livre, sans voix ni vidéo :
+
+   ```bash
+   python main.py build data/input/livre.pdf --style illustre --prompts-only
+   ```
+
+   Chaque épisode est découpé en scènes d'environ 40 s. Le dossier
+   `data/illustrations/<livre>/episode_001/` reçoit un `prompts.txt` (un prompt par
+   scène) et `PROMPTS.md` les rassemble tous. Avec une clé API Anthropic, Claude
+   rédige les prompts en anglais, d'après une « bible visuelle » du livre (époque,
+   lieux, apparence des personnages) pour garder des images cohérentes ; sans clé, le
+   prompt est construit à partir du texte de la scène. `--image-style "aquarelle"`
+   impose un style à toutes les images.
+2. **Créer les images** avec votre générateur (ChatGPT, Gemini, Midjourney…), au format
+   paysage 16:9.
+3. **Les déposer** dans le dossier de l'épisode sous les noms `scene_01.jpg`,
+   `scene_02.png`… Le plus simple est le bouton **Images** de chaque épisode dans le
+   tableau de bord, qui affiche le prompt, le copie, et ajoute l'image depuis la galerie.
+4. **Générer** avec les **mêmes réglages de découpage** :
+   `python main.py build data/input/livre.pdf --style illustre`.
+
+Les scènes sans image prennent une image de Wikimedia Commons (`--images dossier` pour
+n'utiliser que les vôtres ; une scène sans image reprend alors la précédente). Vos images
+n'ont pas de crédit dans la description. Les scènes sont calculées sur le texte seul :
+modifier la présentation ou le générique ne décale pas vos images. En revanche, changer
+le découpage (`--split`, `--minutes`, `--scene-seconds`, `--narration`) change les
+scènes : les prompts sont alors réécrits.
 
 ### Style illustré (images libres de droits)
 

@@ -133,8 +133,18 @@ def _draw_block(draw, lines, font, line_height, center_y, width, color):
 
 
 class SlideRenderer:
-    def __init__(self, config: dict, book_title: str, episode_number: int, episode_title: str):
+    def __init__(self, config: dict, book_title: str, episode_number: int, episode_title: str,
+                 *, author: str | None = None, channel=None, presentation: str = ""):
         self.config = config
+        self.author = author
+        self.channel = channel
+        self.presentation = presentation
+        self.logo = None
+        if channel is not None and channel.logo:
+            try:
+                self.logo = Image.open(channel.logo).convert("RGBA")
+            except OSError:
+                print(f"Avertissement : logo illisible ({channel.logo}).", file=sys.stderr)
         self.size = tuple(config.get("resolution", (1920, 1080)))
         self.book_title = book_title
         self.number = episode_number
@@ -149,12 +159,29 @@ class SlideRenderer:
     def _px(self, value: float) -> int:
         return max(1, round(value * self.unit))
 
+    def _logo(self, max_w: int, max_h: int) -> Image.Image | None:
+        if self.logo is None:
+            return None
+        scale = min(max_w / self.logo.width, max_h / self.logo.height)
+        return self.logo.resize((max(1, round(self.logo.width * scale)),
+                                 max(1, round(self.logo.height * scale))), Image.LANCZOS)
+
+    def _header_x(self, img: Image.Image) -> int:
+        """Petit logo en haut à gauche ; renvoie l'abscisse du texte d'en-tête."""
+        x = self._px(60)
+        logo = self._logo(self._px(120), self._px(46))
+        if logo is not None:
+            y = self._px(66) - logo.height // 2
+            img.paste(logo, (x, y), logo)
+            x += logo.width + self._px(14)
+        return x
+
     def _frame(self, progress: float | None) -> tuple[Image.Image, ImageDraw.ImageDraw]:
         img = self.base.copy()
         draw = ImageDraw.Draw(img)
         w, h = self.size
         header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
-        draw.text((self._px(60), self._px(50)), header,
+        draw.text((self._header_x(img), self._px(50)), header,
                   font=_font("bold", self._px(30), self.custom_font), fill=self.accent)
         if progress is not None:
             bar_y, bar_h = h - self._px(14), self._px(6)
@@ -175,6 +202,68 @@ class SlideRenderer:
             draw.text((w / 2, h * 0.78), subtitle,
                       font=_font("regular", self._px(40), self.custom_font),
                       fill=self.text_color, anchor="mm")
+        return img
+
+    def intro_card(self, show_presentation: bool = True) -> Image.Image:
+        """Générique : logo, chaîne, livre, présentation, puis numéro et titre de l'épisode."""
+        img, draw = self._frame(None)
+        w, h = self.size
+        muted = tuple(round(c * 0.78) for c in self.text_color)
+        blocks = []  # (type, contenu, hauteur, espace après)
+
+        logo = self._logo(self._px(520), self._px(150))
+        if logo is not None:
+            blocks.append(("image", logo, logo.height, self._px(18)))
+        name = self.channel.name if self.channel else ""
+        slogan = self.channel.slogan if self.channel else ""
+        if name:
+            font = _font("bold", self._px(46), self.custom_font)
+            blocks.append(("line", (name, font, self.accent), self._px(56), self._px(6)))
+        if slogan:
+            font = _font("regular", self._px(30), self.custom_font)
+            blocks.append(("line", (slogan, font, muted), self._px(40), 0))
+        if name or slogan or logo is not None:
+            blocks[-1] = (*blocks[-1][:3], self._px(20))
+            blocks.append(("rule", None, self._px(4), self._px(30)))
+
+        font, lines, lh = _fit_text(draw, self.book_title, "bold", w - self._px(300),
+                                    self._px(170), self._px(64), self._px(34), self.custom_font)
+        blocks.append(("text", (lines, font, lh, self.text_color), len(lines) * lh, self._px(4)))
+        if self.author:
+            font = _font("regular", self._px(34), self.custom_font)
+            blocks.append(("line", (self.author, font, muted), self._px(46), 0))
+        if show_presentation and self.presentation:
+            font, lines, lh = _fit_text(draw, self.presentation, "regular", w - self._px(420),
+                                        self._px(250), self._px(34), self._px(22), self.custom_font)
+            max_lines = max(1, self._px(250) // lh)
+            if len(lines) > max_lines:  # trop long même en petit : on coupe proprement
+                lines = lines[:max_lines]
+                lines[-1] = lines[-1].rstrip(" .,;") + "…"
+            blocks[-1] = (*blocks[-1][:3], self._px(28))
+            blocks.append(("text", (lines, font, lh, muted), len(lines) * lh, 0))
+        blocks[-1] = (*blocks[-1][:3], self._px(40))
+        font = _font("bold", self._px(40), self.custom_font)
+        blocks.append(("line", (f"{self.labels['episode']} {self.number}", font, self.accent),
+                       self._px(52), self._px(6)))
+        font, lines, lh = _fit_text(draw, self.title, "bold", w - self._px(300), self._px(150),
+                                    self._px(58), self._px(30), self.custom_font)
+        blocks.append(("text", (lines, font, lh, self.text_color), len(lines) * lh, 0))
+
+        total = sum(b[2] + b[3] for b in blocks)
+        y = max(self._px(110), (h - total) / 2)
+        for kind, content, height, gap in blocks:
+            if kind == "image":
+                img.paste(content, (round((w - content.width) / 2), round(y)), content)
+            elif kind == "rule":
+                draw.rectangle((w / 2 - self._px(80), y, w / 2 + self._px(80), y + height),
+                               fill=self.accent)
+            elif kind == "line":
+                text, font, color = content
+                draw.text((w / 2, y + height / 2), text, font=font, fill=color, anchor="mm")
+            else:
+                lines, font, lh, color = content
+                _draw_block(draw, lines, font, lh, y + height / 2, w, color)
+            y += height + gap
         return img
 
     def text_slide(self, text: str, progress: float) -> Image.Image:
@@ -226,22 +315,35 @@ class OverlayRenderer(SlideRenderer):
         self._veil = False  # voile sombre plein écran (titre, carte de fin)
 
     def _frame(self, progress):
-        img = Image.new("RGBA", self.size, self.VEIL if self._veil else (0, 0, 0, 0))
+        veil = {True: self.VEIL, "fort": (0, 0, 0, 200)}.get(self._veil, (0, 0, 0, 0))
+        img = Image.new("RGBA", self.size, veil)
         draw = ImageDraw.Draw(img)
         w, h = self.size
         header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
         font = _font("bold", self._px(30), self.custom_font)
         x, y = self._px(60), self._px(50)
-        left, top, right, bottom = draw.textbbox((x, y), header, font=font)
+        logo = self._logo(self._px(120), self._px(46))
+        text_x = x + (logo.width + self._px(14) if logo is not None else 0)
+        left, top, right, bottom = draw.textbbox((text_x, y), header, font=font)
         pad = self._px(14)
-        draw.rounded_rectangle((left - pad, top - pad, right + pad, bottom + pad),
+        draw.rounded_rectangle((x - pad, min(top, self._px(43)) - pad, right + pad,
+                                max(bottom, self._px(89)) + pad),
                                radius=self._px(12), fill=(0, 0, 0, 140))
-        draw.text((x, y), header, font=font, fill=self.accent)
+        if logo is not None:
+            img.alpha_composite(logo, (x, self._px(66) - logo.height // 2))
+        draw.text((text_x, y), header, font=font, fill=self.accent)
         if progress is not None:
             bar_y, bar_h = h - self._px(14), self._px(6)
             draw.rectangle((0, bar_y, w, bar_y + bar_h), fill=(0, 0, 0, 120))
             draw.rectangle((0, bar_y, round(w * progress), bar_y + bar_h), fill=self.accent)
         return img, draw
+
+    def intro_card(self, show_presentation=True):
+        self._veil = "fort"
+        try:
+            return super().intro_card(show_presentation)
+        finally:
+            self._veil = False
 
     def title_slide(self, subtitle=None):
         self._veil = True
@@ -271,18 +373,26 @@ class OverlayRenderer(SlideRenderer):
 
 
 def generate_overlays(script: Script, timings: list[Timing], out_dir: str | Path, config: dict,
-                      *, book_title: str = "", last_episode: bool = False) -> list[Slide]:
+                      *, book_title: str = "", last_episode: bool = False,
+                      branding: dict | None = None) -> list[Slide]:
     """Un calque transparent par segment (titre, bandeau de texte, carte de fin)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     episode = script.episode
-    renderer = OverlayRenderer(config, book_title, episode.number, episode.title)
+    renderer = OverlayRenderer(config, book_title, episode.number, episode.title,
+                               **(branding or {}))
     total = timings[-1].end if timings else 1.0
     slides = []
+    intro_path = None
     for i, timing in enumerate(timings):
         if timing.kind == "intro":
-            img = renderer.title_slide(book_title)
-        elif timing.kind == "outro":
+            # Une seule image de générique, réutilisée pour toutes ses phrases.
+            if intro_path is None:
+                intro_path = out_dir / f"overlay_{i:04d}.png"
+                renderer.intro_card().save(intro_path, compress_level=1)
+            slides.append(Slide(intro_path, timing.end - timing.start))
+            continue
+        if timing.kind == "outro":
             img = renderer.end_slide(last_episode)
         else:
             img = renderer.caption_slide(timing.text, timing.start / total)
@@ -293,21 +403,28 @@ def generate_overlays(script: Script, timings: list[Timing], out_dir: str | Path
 
 
 def generate(script: Script, timings: list[Timing], out_dir: str | Path, config: dict, *,
-             book_title: str = "", last_episode: bool = False) -> list[Slide]:
+             book_title: str = "", last_episode: bool = False,
+             branding: dict | None = None) -> list[Slide]:
     """Produit une image par segment ; retourne les diapositives et leur durée."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     episode = script.episode
-    renderer = SlideRenderer(config, book_title, episode.number, episode.title)
+    renderer = SlideRenderer(config, book_title, episode.number, episode.title,
+                             **(branding or {}))
     style = config.get("visual_style", "slides")
     total = timings[-1].end if timings else 1.0
 
     slides = []
+    intro_path = None
     for i, timing in enumerate(timings):
         progress = timing.start / total
         if timing.kind == "intro":
-            img = renderer.title_slide(book_title)
-        elif timing.kind == "outro" and style == "slides":
+            if intro_path is None:
+                intro_path = out_dir / f"slide_{i:04d}.png"
+                renderer.intro_card().save(intro_path, optimize=False, compress_level=1)
+            slides.append(Slide(intro_path, timing.end - timing.start))
+            continue
+        if timing.kind == "outro" and style == "slides":
             img = renderer.end_slide(last_episode)
         elif style == "card":
             img = renderer.card_slide(timing.text, progress)
@@ -359,12 +476,14 @@ def plain_background(path: str | Path, config: dict) -> Path:
 
 
 def thumbnail(path: str | Path, config: dict, *, book_title: str, episode_number: int,
-              episode_title: str, background: str | Path | None = None) -> Path:
-    """Miniature YouTube 1280×720 (sur l'illustration de l'épisode si fournie)."""
+              episode_title: str, background: str | Path | None = None,
+              branding: dict | None = None) -> Path:
+    """Miniature YouTube 1280×720 : logo, livre et épisode (sur l'illustration si fournie)."""
     cfg = {**config, "resolution": (1280, 720)}
     if background:
         cfg["background_image"] = background
-    img = SlideRenderer(cfg, book_title, episode_number, episode_title).title_slide(book_title)
+    renderer = SlideRenderer(cfg, book_title, episode_number, episode_title, **(branding or {}))
+    img = renderer.intro_card(show_presentation=False)
     path = Path(path)
     img.save(path, quality=90)
     return path

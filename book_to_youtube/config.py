@@ -45,6 +45,9 @@ CONFIG = {
     "summary_model": "claude-opus-5-5",
     "summary_effort": "medium",  # "low", "medium", "high"…
     "add_intro": True,
+    # Générique : la présentation du livre (data/episodes/<livre>/presentation.txt)
+    # est lue au début de chaque épisode ; False = seulement affichée.
+    "read_presentation": True,
     "add_outro": True,
     "segment_max_chars": 220,  # taille max d'un segment (diapo / sous-titre)
 
@@ -70,6 +73,12 @@ CONFIG = {
     "zoom_supersampling": 1.5,  # 1 = plus rapide, 2 = mouvement plus fluide
     "illustration_theme": None,  # recherche de secours, ex. "veld Afrique du Sud"
     "illustration_hint": "",  # ajouté à chaque recherche, ex. "painting"
+    # Source des images : vos images (data/illustrations/<livre>/episode_NNN/scene_01.jpg…)
+    # puis Wikimedia Commons pour les scènes sans image ("dossier", "commons" possibles).
+    "illustration_source": "dossier+commons",
+    # Prompts d'images : "auto" = Claude si une clé API est configurée, sinon modèle simple.
+    "image_prompts": "auto",
+    "image_style": None,  # style imposé dans les prompts (défaut : peinture numérique)
     "resolution": (1920, 1080),
     "background": ((22, 27, 45), (48, 36, 74)),  # dégradé haut -> bas
     "text_color": (245, 245, 245),
