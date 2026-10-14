@@ -133,3 +133,10 @@ def test_build_illustrated_style(tmp_path, config, monkeypatch, ken_burns):
     assert abs(duration - ep["duration"]) < 0.3
     assert len(ep["image_credits"]) == 2
     assert "Wikimedia Commons" in ep["description"] and "Jean Photo" in ep["description"]
+
+
+def test_reusable_build_options():
+    argv = ["build", "--no-zoom", "data/input/x.pdf", "--style", "illustre", "--episodes", "3",
+            "--force", "--theme", "South Africa", "--max-episodes=2"]
+    assert main._reusable_options(argv, "data/input/x.pdf") == [
+        "--no-zoom", "--style", "illustre", "--theme", "South Africa"]

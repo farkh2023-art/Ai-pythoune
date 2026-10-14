@@ -4,10 +4,12 @@ Toutes les valeurs peuvent être surchargées depuis la ligne de commande
 (voir ``main.py --help``) ou en modifiant ce dictionnaire.
 """
 
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
+# AIP_DATA_DIR permet d'utiliser un autre dossier de travail (tests, plusieurs projets…).
+DATA_DIR = Path(os.environ.get("AIP_DATA_DIR") or BASE_DIR / "data")
 
 CONFIG = {
     # --- Dossiers de travail -------------------------------------------

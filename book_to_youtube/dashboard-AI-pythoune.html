@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-pythoune — Tableau de bord</title>
+<style>
+  :root {
+    --bg: #f5f4f0; --panel: #ffffff; --panel-2: #f0eee8; --text: #1d1b16; --muted: #6b675d;
+    --line: #e2dfd6; --accent: #b4561c; --accent-ink: #ffffff;
+    --ok: #2f7d4f; --warn: #a86a00; --bad: #b3261e; --info: #2459a8; --run: #6b3fb0;
+    --ok-bg: #e3f2e8; --warn-bg: #fbefd5; --bad-bg: #fbe3e1; --info-bg: #e2ebf9; --run-bg: #eee5fa;
+    --idle-bg: #ecebe6; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15140f; --panel: #1f1d17; --panel-2: #29261f; --text: #efece4; --muted: #a59f92;
+      --line: #36322a; --accent: #e8894d; --accent-ink: #1b1209;
+      --ok: #6cc690; --warn: #e6b252; --bad: #f08a80; --info: #8db3f0; --run: #b99af0;
+      --ok-bg: #1d3325; --warn-bg: #3a2e14; --bad-bg: #3d1f1c; --info-bg: #1c2a40; --run-bg: #2c2240;
+      --idle-bg: #2a2721; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg);
+           border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex;
+           align-items: center; gap: 10px; }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  header h1 small { color: var(--muted); font-weight: 400; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+                 padding: 14px 16px; box-shadow: var(--shadow); }
+  h2 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  h2 .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+          background: var(--accent); color: var(--accent-ink); font-size: 12px; }
+  .muted { color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+  button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel-2);
+                 color: var(--text); border-radius: 8px; padding: 7px 12px; cursor: pointer;
+                 text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.small { padding: 4px 9px; font-size: 13px; }
+  input, select, textarea { font: inherit; color: var(--text); background: var(--panel);
+                            border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
+                            width: 100%; }
+  textarea { min-height: 140px; resize: vertical; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  label.check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+  label.check input { width: auto; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px;
+           border-radius: 999px; white-space: nowrap; }
+  .b-a_valider { background: var(--warn-bg); color: var(--warn); }
+  .b-valide { background: var(--ok-bg); color: var(--ok); }
+  .b-rejete { background: var(--bad-bg); color: var(--bad); }
+  .b-publie { background: var(--info-bg); color: var(--info); }
+  .b-a_generer { background: var(--idle-bg); color: var(--muted); }
+  .b-en_cours { background: var(--run-bg); color: var(--run); }
+  .b-termine { background: var(--ok-bg); color: var(--ok); }
+  .b-erreur { background: var(--bad-bg); color: var(--bad); }
+  .b-annule { background: var(--idle-bg); color: var(--muted); }
+  .pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  pre.log { background: #11100c; color: #e6e1d4; border-radius: 8px; padding: 10px; margin: 8px 0 0;
+            max-height: 300px; overflow: auto; font-size: 12px; white-space: pre-wrap;
+            word-break: break-word; }
+  pre.log a { color: #f2b37f; }
+  /* Étapes du pipeline */
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 10px 0 12px; }
+  .step { border: 1px solid var(--line); border-radius: 10px; padding: 8px; min-width: 0;
+          background: var(--panel); }
+  .step .t { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .step .v { font-weight: 650; font-size: 14px; overflow-wrap: anywhere; }
+  .step.done { border-color: var(--ok); }
+  .step.done .t::before { content: "✓ "; color: var(--ok); }
+  .step.active { border-color: var(--run); background: var(--run-bg); }
+  @media (max-width: 620px) {
+    .steps { grid-template-columns: 1fr 1fr; }
+    .steps .step:last-child { grid-column: span 2; }
+  }
+  /* Épisodes */
+  .episodes { display: grid; gap: 6px; }
+  .ep { display: grid; grid-template-columns: auto 72px 1fr auto; gap: 10px; align-items: center;
+        border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; background: var(--panel); }
+  .ep.planned { opacity: .75; }
+  .ep img, .ep .ph { width: 72px; height: 40px; object-fit: cover; border-radius: 6px;
+                     background: var(--panel-2); display: block; }
+  .ep .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ep .meta { font-size: 12.5px; color: var(--muted); }
+  .ep .actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  @media (max-width: 620px) {
+    .ep { grid-template-columns: auto 64px 1fr; }
+    .ep img, .ep .ph { width: 64px; height: 36px; }
+    .ep .actions { grid-column: 1 / -1; justify-content: flex-start; }
+  }
+  .toolbar { position: sticky; top: 52px; z-index: 2; background: var(--panel); padding: 8px 0;
+             border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .toolbar .sel { white-space: nowrap; }
+  @media (max-width: 620px) { .toolbar .sel { flex-basis: 100%; } }
+  .chips button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .books { display: grid; gap: 6px; }
+  .book { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line);
+          border-radius: 10px; padding: 8px 10px; }
+  .env { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+  .env div { font-size: 13.5px; }
+  dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+           color: var(--text); padding: 0; width: min(720px, calc(100vw - 24px)); }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog .inner { padding: 16px; display: grid; gap: 12px; max-height: 88vh; overflow: auto; }
+  dialog video { width: 100%; border-radius: 10px; background: #000; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+  fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0;
+             display: grid; gap: 10px; }
+  legend { font-size: 13px; font-weight: 650; padding: 0 4px; }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 20;
+           background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px;
+           max-width: calc(100vw - 32px); display: none; }
+  .empty { padding: 18px; text-align: center; color: var(--muted); border: 1px dashed var(--line);
+           border-radius: 10px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI-pythoune <small>— livre → série YouTube</small></h1>
+  <span class="dot" id="conn" title="Connexion au serveur"></span>
+</header>
+
+<main>
+  <section class="card" id="noToken" hidden>
+    <h2>Adresse incomplète</h2>
+    <p>Ouvrez le tableau de bord avec l'adresse complète affichée par
+      <code>python dashboard.py</code> (elle se termine par <code>#token=…</code>).</p>
+  </section>
+
+  <section class="card" id="jobCard" hidden>
+    <h2>Tâche en cours</h2>
+    <div class="row">
+      <div class="grow"><strong id="jobLabel"></strong><div class="muted" id="jobStage"></div></div>
+      <span class="badge" id="jobBadge"></span>
+    </div>
+    <div class="bar" style="margin-top:10px"><div id="jobBar"></div></div>
+    <div class="row" style="margin-top:10px">
+      <span class="muted grow" id="jobTime"></span>
+      <button class="small" id="logToggle">Journal</button>
+      <button class="small danger" id="cancelBtn">Annuler</button>
+    </div>
+    <pre class="log" id="jobLog" hidden></pre>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">1</span> Importer un livre</h2>
+    <div class="row">
+      <input type="file" id="bookFile" accept=".pdf,.epub,.docx,.txt,.md" class="grow">
+      <button class="primary" id="uploadBtn">Importer</button>
+    </div>
+    <div class="bar" id="uploadBarWrap" style="margin-top:8px" hidden><div id="uploadBar"></div></div>
+    <p class="muted" style="margin:8px 0 10px">PDF, EPUB, DOCX ou TXT. Le fichier est copié dans
+      <code>data/input/</code>.</p>
+    <div class="books" id="books"></div>
+  </section>
+
+  <div id="seriesList" style="display:grid; gap:16px"></div>
+
+  <section class="card">
+    <h2>Configuration</h2>
+    <div class="env" id="env"></div>
+  </section>
+
+  <section class="card">
+    <h2>Historique des tâches</h2>
+    <div id="history" class="books"></div>
+  </section>
+</main>
+
+<!-- Générer une série -->
+<dialog id="buildDialog">
+  <form method="dialog" class="inner" id="buildForm">
+    <h2 style="margin:0">Générer la série — <span id="buildBook"></span></h2>
+    <fieldset>
+      <legend>Découpage</legend>
+      <div class="grid2">
+        <label>Règle
+          <select name="split">
+            <option value="chapter">Par chapitre</option>
+            <option value="duration">Par durée</option>
+            <option value="words">Par nombre de mots</option>
+          </select></label>
+        <label>Durée max. d'un chapitre (min)
+          <input name="max_minutes" type="number" min="5" step="1" placeholder="20"></label>
+        <label>Durée cible (min, mode durée)
+          <input name="minutes" type="number" min="2" step="1" placeholder="10"></label>
+        <label>Nombre d'épisodes à générer
+          <input name="max_episodes" type="number" min="1" step="1" placeholder="tous"></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Narration</legend>
+      <div class="grid2">
+        <label>Type
+          <select name="narration">
+            <option value="fidele">Lecture intégrale</option>
+            <option value="resume">Résumé (Claude, clé API requise)</option>
+          </select></label>
+        <label>Durée d'un épisode résumé (min)
+          <input name="summary_minutes" type="number" min="1" step="1" placeholder="5"></label>
+        <label>Voix
+          <select name="tts">
+            <option value="edge">edge-tts (en ligne)</option>
+            <option value="gtts">Google (en ligne)</option>
+            <option value="silent">Silence (test du montage)</option>
+          </select></label>
+        <label>Voix edge-tts
+          <select name="voice">
+            <option value="">Denise (femme, défaut)</option>
+            <option value="fr-FR-HenriNeural">Henri (homme)</option>
+            <option value="fr-FR-EloiseNeural">Eloise (femme)</option>
+            <option value="fr-FR-RemyMultilingualNeural">Rémy (homme)</option>
+          </select></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Images</legend>
+      <div class="grid2">
+        <label>Style
+          <select name="style">
+            <option value="illustre">Illustré (Wikimedia Commons)</option>
+            <option value="card">Carte + sous-titres</option>
+            <option value="slides">Texte en grand</option>
+          </select></label>
+        <label>Résolution
+          <select name="resolution">
+            <option value="1280x720">1280×720 (rapide)</option>
+            <option value="1920x1080">1920×1080</option>
+          </select></label>
+        <label>Thème de secours (anglais)
+          <input name="theme" placeholder="ex. South Africa veld"></label>
+        <label>Mot ajouté aux recherches
+          <input name="image_hint" placeholder="ex. painting"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="no_zoom"> Images fixes, sans zoom
+        (montage ~4× plus rapide)</label>
+    </fieldset>
+    <label class="check"><input type="checkbox" name="force"> Régénérer les épisodes déjà produits</label>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel">Fermer</button>
+      <button class="primary" value="go" id="buildGo">Lancer la génération</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Épisode : aperçu, métadonnées, validation -->
+<dialog id="epDialog">
+  <div class="inner">
+    <div class="row">
+      <h2 class="grow" style="margin:0" id="epHead"></h2>
+      <span class="badge" id="epBadge"></span>
+    </div>
+    <video id="epVideo" controls preload="metadata" playsinline></video>
+    <label>Titre YouTube <input id="epTitle" maxlength="100"></label>
+    <label>Description <textarea id="epDesc" maxlength="5000"></textarea></label>
+    <div class="muted" id="epNote"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button id="epClose">Fermer</button>
+      <button id="epSave">Enregistrer</button>
+      <button id="epPending">Remettre à valider</button>
+      <button class="danger" id="epReject">Rejeter</button>
+      <button class="primary" id="epApprove">Valider</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+// --- Jeton et appels à l'API ---------------------------------------------------------
+const TOKEN = (() => {
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get("token");
+  try {
+    if (fromHash) sessionStorage.setItem("aip-token", fromHash);
+    return fromHash || sessionStorage.getItem("aip-token") || "";
+  } catch { return fromHash || ""; }
+})();
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "X-Token": TOKEN, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+  return data;
+}
+const media = url => `${url}?token=${encodeURIComponent(TOKEN)}`;
+
+// --- Petits utilitaires d'affichage (aucun innerHTML avec des données) ----------------
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (k === "class") node.className = v;
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) if (c !== null && c !== undefined && c !== false)
+    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return node;
+}
+const $ = id => document.getElementById(id);
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = "none", 4500);
+}
+const fmtMin = s => s ? `${(s / 60).toFixed(1)} min` : "";
+const fmtSize = b => b > 1e6 ? `${(b / 1e6).toFixed(1)} Mo` : `${Math.round(b / 1e3)} ko`;
+function fmtElapsed(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? `${h} h ${m} min` : m ? `${m} min ${s} s` : `${s} s`;
+}
+
+const STATUS = { a_generer: "À générer", a_valider: "À valider", valide: "Validé",
+                 rejete: "Rejeté", publie: "Publié", en_cours: "En cours" };
+const STAGES = { decoupage: "Découpage du livre", resume: "Résumé par Claude", voix: "Voix off",
+                 illustrations: "Recherche d'illustrations", visuels: "Visuels",
+                 montage: "Montage vidéo", termine: "Épisode terminé", fini: "Terminé" };
+const STAGE_ORDER = ["resume", "voix", "illustrations", "visuels", "montage"];
+const JOB_STATUS = { en_cours: "En cours", termine: "Terminé", erreur: "Erreur", annule: "Annulé" };
+
+// --- État ---------------------------------------------------------------------------
+let STATE = null;
+const ui = { filters: {}, selected: {}, logOpen: false, logOffset: 0, logJob: null };
+
+async function refresh() {
+  try {
+    STATE = await api("/api/state");
+    $("conn").className = "dot ok";
+    render();
+  } catch (err) {
+    $("conn").className = "dot bad";
+    if (/jeton/i.test(err.message)) $("noToken").hidden = false;
+  }
+  const running = STATE?.job?.status === "en_cours";
+  setTimeout(refresh, running ? 2500 : 10000);
+}
+
+function render() {
+  renderJob(); renderBooks(); renderSeries(); renderEnv(); renderHistory();
+}
+
+// --- Tâche en cours -------------------------------------------------------------------
+function renderJob() {
+  const job = STATE.job;
+  $("jobCard").hidden = !job;
+  if (!job) return;
+  $("jobLabel").textContent = job.label;
+  const badge = $("jobBadge");
+  badge.textContent = JOB_STATUS[job.status]; badge.className = `badge b-${job.status}`;
+  badge.classList.toggle("pulse", job.status === "en_cours");
+  $("cancelBtn").hidden = job.status !== "en_cours";
+  const end = job.ended || Date.now() / 1000;
+  $("jobTime").textContent = `Durée : ${fmtElapsed(end - job.started)}`;
+
+  const series = STATE.series.find(s => s.progress);
+  const p = series?.progress;
+  let pct = job.status === "en_cours" ? 3 : 100, stage = "";
+  if (p) {
+    // Avancement de la série : épisodes déjà produits + fraction de l'épisode en cours.
+    const total = p.total || 1, done = (p.done || []).length;
+    const others = series.episodes.filter(e => e.number !== p.episode).length;
+    const frac = STAGE_ORDER.includes(p.stage)
+      ? (STAGE_ORDER.indexOf(p.stage) + 0.5) / STAGE_ORDER.length : 0;
+    pct = Math.min(100, Math.max(3, (others + frac) / total * 100));
+    stage = p.episode ? `Épisode ${p.episode}/${p.total} — ${STAGES[p.stage] || p.stage}`
+                      : STAGES[p.stage] || p.stage;
+    if (done) stage += ` · ${done} terminé(s) pendant cette tâche`;
+  } else if (job.kind === "upload") {
+    stage = "Envoi vers YouTube…";
+  }
+  if (job.status === "erreur") stage = "Échec : ouvrez le journal pour voir l'erreur.";
+  $("jobStage").textContent = stage;
+  $("jobBar").style.width = `${pct}%`;
+  if (ui.logJob !== job.id) { ui.logJob = job.id; ui.logOffset = 0; $("jobLog").textContent = ""; }
+  if (job.status === "erreur" && !ui.logOpen) toggleLog(true);
+}
+
+function toggleLog(force) {
+  ui.logOpen = force ?? !ui.logOpen;
+  $("jobLog").hidden = !ui.logOpen;
+  if (ui.logOpen) pollLog();
+}
+async function pollLog() {
+  if (!ui.logOpen || !ui.logJob) return;
+  try {
+    const data = await api(`/api/log?id=${encodeURIComponent(ui.logJob)}&offset=${ui.logOffset}`);
+    if (data.text) {
+      ui.logOffset = data.offset;
+      appendLog(data.text);
+    }
+    if (data.status === "en_cours") setTimeout(pollLog, 1500);
+  } catch { setTimeout(pollLog, 4000); }
+}
+function appendLog(text) {
+  const pre = $("jobLog");
+  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 30;
+  // Les liens (autorisation Google, vidéos publiées) deviennent cliquables.
+  for (const part of text.split(/(https?:\/\/\S+)/)) {
+    pre.append(/^https?:\/\//.test(part)
+      ? el("a", { href: part, target: "_blank", rel: "noopener" }, part)
+      : document.createTextNode(part));
+  }
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+}
+$("logToggle").onclick = () => toggleLog();
+$("cancelBtn").onclick = async () => {
+  if (!confirm("Annuler la tâche en cours ?")) return;
+  await api("/api/cancel", {}).catch(e => toast(e.message));
+  refresh();
+};
+
+// --- Livres -------------------------------------------------------------------------
+function renderBooks() {
+  const box = $("books"); box.replaceChildren();
+  if (!STATE.books.length) { box.append(el("div", { class: "empty" }, "Aucun livre importé.")); return; }
+  const busy = STATE.job?.status === "en_cours";
+  for (const book of STATE.books) {
+    const series = STATE.series.find(s => s.source === book.name);
+    box.append(el("div", { class: "book" },
+      el("div", { class: "grow" },
+        el("div", { style: "font-weight:600; overflow-wrap:anywhere" }, book.name),
+        el("div", { class: "muted", style: "font-size:13px" }, fmtSize(book.size),
+           series ? ` · série « ${series.title} »` : " · pas encore de série")),
+      el("button", { class: "primary small", disabled: busy || null,
+                     onclick: () => openBuild(book.name) }, series ? "Continuer…" : "Générer…")));
+  }
+}
+
+$("uploadBtn").onclick = () => {
+  const file = $("bookFile").files[0];
+  if (!file) return toast("Choisissez d'abord un fichier.");
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `/api/books?name=${encodeURIComponent(file.name)}`);
+  xhr.setRequestHeader("X-Token", TOKEN);
+  $("uploadBarWrap").hidden = false;
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $("uploadBar").style.width = `${e.loaded / e.total * 100}%`; };
+  xhr.onload = () => {
+    $("uploadBarWrap").hidden = true; $("uploadBar").style.width = "0";
+    let data = {}; try { data = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status >= 400) return toast(data.error || "Échec de l'import.");
+    toast(`« ${data.name} » importé.`); $("bookFile").value = ""; refresh();
+  };
+  xhr.onerror = () => { $("uploadBarWrap").hidden = true; toast("Échec de l'import."); };
+  xhr.send(file);
+};
+
+// --- Formulaire de génération -----------------------------------------------------------
+let buildBook = null;
+function openBuild(name) {
+  buildBook = name;
+  $("buildBook").textContent = name;
+  const form = $("buildForm");
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("aip-build") || "{}"); } catch {}
+  for (const field of form.elements) {
+    if (!field.name || !(field.name in saved)) continue;
+    if (field.type === "checkbox") field.checked = !!saved[field.name] && field.name !== "force";
+    else field.value = saved[field.name];
+  }
+  form.elements.force.checked = false;
+  $("buildDialog").showModal();
+}
+$("buildForm").addEventListener("submit", async ev => {
+  if (ev.submitter?.value !== "go") return;
+  const options = {};
+  for (const field of $("buildForm").elements) {
+    if (!field.name) continue;
+    options[field.name] = field.type === "checkbox" ? field.checked : field.value.trim();
+  }
+  try { localStorage.setItem("aip-build", JSON.stringify(options)); } catch {}
+  try {
+    await api("/api/build", { book: buildBook, options });
+    toast("Génération lancée."); toggleLog(true); refresh();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Séries --------------------------------------------------------------------------
+function episodeRows(series) {
+  const made = new Map(series.episodes.map(e => [e.number, e]));
+  const planned = series.planned.length ? series.planned
+    : series.episodes.map(e => ({ number: e.number, title: e.title }));
+  const p = series.progress;
+  return planned.map(pl => {
+    const ep = made.get(pl.number);
+    const running = p && p.episode === pl.number && p.stage !== "termine";
+    const status = running ? "en_cours" : ep ? ep.status : "a_generer";
+    return { number: pl.number, title: ep?.title || pl.title, words: pl.words, ep, status,
+             stage: running ? STAGES[p.stage] : null };
+  });
+}
+
+function renderSeries() {
+  const box = $("seriesList"); box.replaceChildren();
+  if (!STATE.series.length) {
+    box.append(el("section", { class: "card" },
+      el("h2", {}, el("span", { class: "n" }, "2"), " Séries"),
+      el("div", { class: "empty" }, "Importez un livre puis lancez « Générer… ».")));
+    return;
+  }
+  for (const s of STATE.series) box.append(seriesCard(s));
+}
+
+function step(title, value, cls) {
+  return el("div", { class: `step ${cls}` }, el("div", { class: "t" }, title),
+            el("div", { class: "v" }, value));
+}
+
+function seriesCard(s) {
+  const rows = episodeRows(s);
+  const total = s.total || rows.length;
+  const generated = s.episodes.length;
+  const c = s.counts;
+  const validated = c.valide + c.publie;
+  const p = s.progress;
+  const busy = STATE.job?.status === "en_cours";
+
+  const steps = el("div", { class: "steps" },
+    step("Import", s.source || "—", s.source ? "done" : ""),
+    step("Découpage", `${total} épisodes`, total ? "done" : p ? "active" : ""),
+    step("Génération", p?.episode ? `${generated}/${total} · ép. ${p.episode}` : `${generated}/${total}`,
+         p ? "active" : generated >= total && total ? "done" : ""),
+    step("Validation", `${validated}/${generated}` + (c.a_valider ? ` · ${c.a_valider} à voir` : ""),
+         generated && validated === generated ? "done" : c.a_valider ? "active" : ""),
+    step("Publication", `${c.publie}/${total}`,
+         total && c.publie === total ? "done" : STATE.job?.kind === "upload" && busy ? "active" : ""));
+
+  // Filtres par statut
+  const filter = ui.filters[s.slug] || "tous";
+  const sel = ui.selected[s.slug] ||= new Set();
+  const counts = rows.reduce((acc, r) => (acc[r.status] = (acc[r.status] || 0) + 1, acc), {});
+  const chips = el("div", { class: "row chips" },
+    ["tous", "a_generer", "a_valider", "valide", "rejete", "publie"].filter(k => k === "tous" || counts[k])
+      .map(k => el("button", { class: `small ${filter === k ? "on" : ""}`,
+        onclick: () => { ui.filters[s.slug] = k; render(); } },
+        k === "tous" ? `Tous (${rows.length})` : `${STATUS[k]} (${counts[k]})`)));
+
+  const nSel = sel.size;
+  const privacy = el("select", { style: "width:auto" },
+    el("option", { value: "private" }, "Privé"), el("option", { value: "unlisted" }, "Non répertorié"),
+    el("option", { value: "public" }, "Public"));
+  const toolbar = el("div", { class: "toolbar" },
+    chips,
+    el("div", { class: "row", style: "margin-top:8px" },
+      el("span", { class: "muted grow sel" }, nSel ? `${nSel} sélectionné(s)` : "Cochez des épisodes"),
+      el("button", { class: "small", disabled: !nSel || null,
+                     onclick: () => review(s, [...sel], "approve") }, "Valider"),
+      el("button", { class: "small danger", disabled: !nSel || null,
+                     onclick: () => review(s, [...sel], "reject") }, "Rejeter"),
+      privacy,
+      el("button", { class: "small primary", disabled: busy || !c.valide || null,
+                     title: "Envoie sur YouTube tous les épisodes validés",
+                     onclick: () => publish(s, privacy.value) }, `Publier les validés (${c.valide})`)));
+
+  const list = el("div", { class: "episodes" });
+  for (const r of rows.filter(r => filter === "tous" || r.status === filter)) {
+    const selectable = r.ep && ["a_valider", "valide", "rejete"].includes(r.status);
+    const box = el("input", { type: "checkbox", disabled: !selectable || null,
+      checked: sel.has(r.number) || null, "aria-label": `Sélectionner l'épisode ${r.number}`,
+      onchange: e => { e.target.checked ? sel.add(r.number) : sel.delete(r.number); render(); } });
+    const thumb = r.ep?.thumbnail_url
+      ? el("img", { src: media(r.ep.thumbnail_url), alt: "", loading: "lazy" })
+      : el("div", { class: "ph" });
+    const meta = [r.ep?.duration ? fmtMin(r.ep.duration) : r.words ? `${r.words} mots` : "",
+                  r.ep?.narration === "resume" ? "résumé" : ""].filter(Boolean).join(" · ");
+    const actions = el("div", { class: "actions" });
+    if (r.ep) actions.append(el("button", { class: "small", onclick: () => openEpisode(s, r.ep) },
+                                r.status === "publie" ? "Voir" : "Voir / valider"));
+    if (r.ep?.youtube_id) actions.append(el("a", { class: "btn small", target: "_blank",
+      rel: "noopener", href: `https://youtu.be/${r.ep.youtube_id}` }, "YouTube ↗"));
+    if (r.status !== "publie" && r.status !== "en_cours" && s.build_options)
+      actions.append(el("button", { class: "small", disabled: busy || !s.episodes.length || null,
+        title: "Relance la génération de cet épisode avec les mêmes réglages",
+        onclick: () => regenerate(s, r.number) }, r.ep ? "Régénérer" : "Générer"));
+    list.append(el("div", { class: `ep ${r.ep ? "" : "planned"}` },
+      box, thumb,
+      el("div", { style: "min-width:0" },
+        el("div", { class: "title" }, `${r.number}. ${r.title}`),
+        el("div", { class: "meta" },
+          el("span", { class: `badge b-${r.status} ${r.status === "en_cours" ? "pulse" : ""}` },
+             r.stage ? `${STATUS.en_cours} — ${r.stage}` : STATUS[r.status]),
+          meta ? ` ${meta}` : "")),
+      actions));
+  }
+
+  return el("section", { class: "card" },
+    el("h2", {}, el("span", { class: "n" }, "2"), s.title,
+       s.author ? el("span", { class: "muted", style: "font-weight:400" }, ` — ${s.author}`) : ""),
+    steps, toolbar, list,
+    s.playlist_id ? el("p", { class: "muted", style: "margin:10px 0 0" },
+      el("a", { href: `https://www.youtube.com/playlist?list=${s.playlist_id}`, target: "_blank",
+                rel: "noopener" }, "Playlist YouTube de la série ↗")) : "");
+}
+
+async function review(series, episodes, action, note) {
+  if (action === "reject" && note === undefined) {
+    note = prompt("Motif du rejet (facultatif) :");
+    if (note === null) return;
+  }
+  try {
+    const { changed } = await api("/api/review", { slug: series.slug, episodes, action, note });
+    toast(`${changed.length} épisode(s) mis à jour.`);
+    ui.selected[series.slug]?.clear();
+    await refresh();
+  } catch (err) { toast(err.message); }
+}
+
+async function publish(series, privacy) {
+  const n = series.counts.valide;
+  const labels = { private: "en privé", unlisted: "en non répertorié", public: "en PUBLIC" };
+  if (!confirm(`Envoyer ${n} épisode(s) validé(s) sur YouTube, ${labels[privacy]} ?`)) return;
+  try {
+    await api("/api/publish", { slug: series.slug, privacy });
+    toast("Publication lancée. À la première fois, ouvrez le lien d'autorisation Google du journal.");
+    toggleLog(true); refresh();
+  } catch (err) { toast(err.message); }
+}
+
+async function regenerate(series, number) {
+  if (!confirm(`(Re)générer l'épisode ${number} avec les réglages de la série ?`)) return;
+  try { await api("/api/regenerate", { slug: series.slug, episode: number });
+        toast(`Génération de l'épisode ${number} lancée.`); toggleLog(true); refresh(); }
+  catch (err) { toast(err.message); }
+}
+
+// --- Fiche épisode --------------------------------------------------------------------
+let current = null;
+function openEpisode(series, ep) {
+  current = { series, ep };
+  $("epHead").textContent = `Épisode ${ep.number} — ${ep.title}`;
+  const badge = $("epBadge"); badge.textContent = STATUS[ep.status]; badge.className = `badge b-${ep.status}`;
+  $("epVideo").src = media(ep.video_url);
+  $("epTitle").value = ep.youtube_title || "";
+  $("epDesc").value = ep.description || "";
+  const published = ep.status === "publie";
+  for (const id of ["epTitle", "epDesc"]) $(id).disabled = published;
+  $("epSave").hidden = published;
+  $("epApprove").hidden = published || ep.status === "valide";
+  $("epReject").hidden = published || ep.status === "rejete";
+  $("epPending").hidden = published || ep.status === "a_valider";
+  $("epNote").textContent = [ep.review_note ? `Motif : ${ep.review_note}` : "",
+    ep.image_credits?.length ? `${ep.image_credits.length} illustration(s) créditée(s) dans la description.` : "",
+    published ? "Épisode publié : modifiez-le directement sur YouTube." : ""].filter(Boolean).join(" ");
+  $("epDialog").showModal();
+}
+async function saveEpisode(silent) {
+  const { series, ep } = current;
+  await api("/api/edit", { slug: series.slug, episode: ep.number,
+                           youtube_title: $("epTitle").value, description: $("epDesc").value });
+  if (!silent) toast("Enregistré.");
+}
+function closeEpisode() { $("epVideo").pause(); $("epVideo").removeAttribute("src"); $("epDialog").close(); }
+$("epClose").onclick = closeEpisode;
+$("epDialog").addEventListener("close", () => $("epVideo").pause());
+$("epSave").onclick = () => saveEpisode().then(refresh).catch(e => toast(e.message));
+for (const [id, action] of [["epApprove", "approve"], ["epReject", "reject"], ["epPending", "pending"]]) {
+  $(id).onclick = async () => {
+    try {
+      await saveEpisode(true);
+      closeEpisode();
+      await review(current.series, [current.ep.number], action);
+    } catch (err) { toast(err.message); }
+  };
+}
+
+// --- Configuration et historique -------------------------------------------------------
+function renderEnv() {
+  const e = STATE.env;
+  const items = [
+    [e.ffmpeg, "ffmpeg (montage)", "pkg install ffmpeg"],
+    [e.pdf, "Lecture des PDF", "pip install pypdf"],
+    [e.edge_tts || e.gtts, "Synthèse vocale", "pip install -U edge-tts"],
+    [e.youtube_api, "Bibliothèques YouTube", "pip install google-api-python-client google-auth-oauthlib"],
+    [e.client_secrets, "client_secrets.json (YouTube)", "voir le README, section Publication"],
+    [e.youtube_token, "Chaîne YouTube autorisée", "se fait au premier envoi"],
+    [e.anthropic_key, "Clé Claude (mode résumé)", "export ANTHROPIC_API_KEY=…"],
+  ];
+  $("env").replaceChildren(...items.map(([ok, label, hint]) =>
+    el("div", {}, el("span", { style: `color:var(--${ok ? "ok" : "warn"})` }, ok ? "✓ " : "○ "), label,
+       ok ? "" : el("div", { class: "muted", style: "font-size:12px" }, hint))));
+}
+
+function renderHistory() {
+  const box = $("history"); box.replaceChildren();
+  if (!STATE.jobs.length) { box.append(el("div", { class: "empty" }, "Aucune tâche depuis le démarrage.")); return; }
+  for (const job of STATE.jobs) {
+    box.append(el("div", { class: "book" },
+      el("div", { class: "grow" }, el("div", { style: "font-weight:600" }, job.label),
+        el("div", { class: "muted", style: "font-size:12.5px" },
+          new Date(job.started * 1000).toLocaleString("fr-FR"), " · ",
+          fmtElapsed((job.ended || Date.now() / 1000) - job.started))),
+      el("span", { class: `badge b-${job.status}` }, JOB_STATUS[job.status])));
+  }
+}
+
+if (!TOKEN) $("noToken").hidden = false;
+refresh();
+</script>
+</body>
+</html>

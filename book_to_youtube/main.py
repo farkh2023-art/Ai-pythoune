@@ -11,6 +11,7 @@ Exemples :
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -36,9 +37,32 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60] or "livre"
 
 
+class Progress:
+    """Écrit l'étape en cours dans `progress.json` (lu par le tableau de bord)."""
+
+    def __init__(self, path: Path, total: int, book_title: str = ""):
+        self.path, self.total, self.book_title = path, total, book_title
+        self.done: list[int] = []
+
+    def __call__(self, stage: str, episode: int | None = None, title: str = "") -> None:
+        if stage == "termine" and episode is not None:
+            self.done.append(episode)
+        data = {"stage": stage, "episode": episode, "title": title, "total": self.total,
+                "book": self.book_title,
+                "done": self.done, "updated": time.time()}
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.path)
+
+
 def main(book_path: str | Path, config: dict | None = None,
-         only: list[int] | None = None, force: bool = False) -> Path:
-    """Exécute tout le pipeline ; retourne le chemin du manifeste de la série."""
+         only: list[int] | None = None, force: bool = False,
+         build_options: list[str] | None = None) -> Path:
+    """Exécute tout le pipeline ; retourne le chemin du manifeste de la série.
+
+    `build_options` (les options de ligne de commande utilisées) est enregistré
+    dans le manifeste pour pouvoir régénérer un épisode avec les mêmes réglages.
+    """
     config = {**CONFIG, **(config or {})}
     video.check_ffmpeg()
 
@@ -57,7 +81,12 @@ def main(book_path: str | Path, config: dict | None = None,
                 {"book": {"title": book.title, "author": book.author, "source": str(book.source)},
                  "language": config["language"], "playlist_id": None, "episodes": []})
 
+    manifest["book"]["source"] = str(book.source)
+    if build_options is not None:
+        manifest["build_options"] = build_options
     total = len(episodes)
+    progress = Progress(out_dir / "progress.json", total, book.title)
+    progress("decoupage")
     print(f"« {book.title} » : {total} épisode(s), "
           f"{sum(e.word_count for e in episodes)} mots.")
     limit = config.get("max_episodes")
@@ -72,6 +101,7 @@ def main(book_path: str | Path, config: dict | None = None,
         started = time.monotonic()
         print(f"[{ep.number}/{total}] {ep.title} — {ep.word_count} mots")
         if config["narration_mode"] == "resume":
+            progress("resume", ep.number, ep.title)
             original = ep
             ep = summarizer.summarize_episode(ep, config, book_title=book.title,
                                               author=book.author, total_episodes=total,
@@ -79,6 +109,7 @@ def main(book_path: str | Path, config: dict | None = None,
             print(f"    résumé : {ep.word_count} mots "
                   f"({summarizer.summary_ratio(original, ep):.0%} de l'original)")
 
+        progress("voix", ep.number, ep.title)
         script = scripter.make_script(ep, config, book_title=book.title,   # 4. Script
                                       author=book.author, total_episodes=total)
         audio = tts.synthesize(script, Path(config["audio_dir"]) / slug / f"{name}.wav",
@@ -89,15 +120,18 @@ def main(book_path: str | Path, config: dict | None = None,
         credits: list[str] = []
         cover = None
         if config["visual_style"] == "illustre":                           # 6. Visuels
+            progress("illustrations", ep.number, ep.title)
             scenes = illustrations.plan_scenes(audio.timings, config["scene_seconds"])
             illustrations.illustrate(scenes, config, Path(config["images_dir"]) / "commons",
                                      log=print)
             n_images = len({s.illustration.path for s in scenes if s.illustration})
             print(f"    illustrations : {n_images} image(s) pour {len(scenes)} scène(s)"
                   + ("" if n_images else " — aucune trouvée, fond uni utilisé"))
+            progress("visuels", ep.number, ep.title)
             overlays = visuals.generate_overlays(script, audio.timings, images_dir, config,
                                                  book_title=book.title, last_episode=last)
             fallback = visuals.plain_background(images_dir / "fond.jpg", config)
+            progress("montage", ep.number, ep.title)
             if config["ken_burns"]:                                         # 7. Montage
                 video.assemble_illustrated(audio.path, scenes, overlays, video_path,
                                            config, images_dir, fallback)
@@ -108,8 +142,10 @@ def main(book_path: str | Path, config: dict | None = None,
             credits = illustrations.credits(scenes)
             cover = next((s.illustration.path for s in scenes if s.illustration), None)
         else:
+            progress("visuels", ep.number, ep.title)
             slides = visuals.generate(script, audio.timings, images_dir, config,
                                       book_title=book.title, last_episode=last)
+            progress("montage", ep.number, ep.title)
             video.assemble(audio.path, slides, video_path, config)
         thumb = visuals.thumbnail(out_dir / f"{name}.jpg", config, book_title=book.title,
                                   episode_number=ep.number, episode_title=ep.title,
@@ -133,9 +169,11 @@ def main(book_path: str | Path, config: dict | None = None,
             "status": uploader.PENDING,
         })
         uploader.save_manifest(manifest, manifest_path)
+        progress("termine", ep.number, ep.title)
         print(f"    -> {video_path} ({audio.duration / 60:.1f} min, "
               f"généré en {time.monotonic() - started:.0f} s)")
 
+    progress("fini")
     print(f"\nManifeste : {manifest_path}")
     print("Étape suivante — validation par le créateur de la chaîne :")
     print(f"    python main.py review {manifest_path}")
@@ -240,6 +278,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _reusable_options(argv: list[str], book: str) -> list[str]:
+    """Options de `build` à réutiliser pour régénérer un épisode (sans livre ni sélection)."""
+    args = list(argv[1:])  # retire « build »
+    if book in args:
+        args.remove(book)
+    kept, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg in ("--episodes", "--max-episodes"):
+            skip = True
+        elif arg != "--force" and not arg.startswith(("--episodes=", "--max-episodes=")):
+            kept.append(arg)
+    return kept
+
+
 def cli(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -261,7 +315,9 @@ def cli(argv: list[str] | None = None) -> int:
         if args.resolution:
             w, h = (int(v) for v in args.resolution.lower().split("x"))
             overrides["resolution"] = (w, h)
-        main(args.book, overrides, only=parse_numbers(args.episodes), force=args.force)
+        main(args.book, overrides, only=parse_numbers(args.episodes), force=args.force,
+             build_options=_reusable_options(argv if argv is not None else sys.argv[1:],
+                                             str(args.book)))
     elif args.command == "status":
         print(uploader.summary(args.manifest))
     elif args.command == "review":

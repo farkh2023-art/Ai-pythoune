@@ -50,6 +50,35 @@ avec **pypdf** (pur Python, plus lent mais équivalent pour ce projet). Conseils
 pas être interrompu écran éteint, et `cp ~/storage/downloads/livre.pdf data/input/`
 pour récupérer un livre téléchargé.
 
+## Tableau de bord
+
+Tout le parcours (import du livre → génération → validation → publication) peut
+se piloter depuis un navigateur, y compris sur le téléphone :
+
+```bash
+python dashboard.py            # Termux : ajoutez --open pour ouvrir Chrome directement
+```
+
+Ouvrez l'adresse affichée (`http://127.0.0.1:8765/#token=…`). Le tableau de bord
+permet de :
+
+- **importer un livre** depuis le téléphone (plus besoin de `cp`) ;
+- **lancer la génération** avec un formulaire (découpage, voix, style, illustrations…) ;
+- **suivre la tâche en cours** : épisode, étape (voix, illustrations, montage…), journal
+  en direct, annulation ;
+- voir chaque série en **5 étapes** (import, découpage, génération, validation,
+  publication) et chaque épisode avec son statut (à générer, en cours, à valider,
+  validé, rejeté, publié) ;
+- **regarder un épisode**, corriger son titre et sa description, le valider ou le rejeter,
+  le régénérer avec les mêmes réglages ;
+- **publier** les épisodes validés (privé, non répertorié ou public), avec le lien
+  d'autorisation Google cliquable dans le journal au premier envoi.
+
+Le serveur n'écoute que sur l'appareil lui-même, et chaque requête doit porter le
+jeton secret de l'adresse affichée : ne la partagez pas. Une seule tâche tourne à la
+fois. Les commandes en ligne (`build`, `review`, `upload`…) restent utilisables en
+parallèle du tableau de bord.
+
 ## Utilisation
 
 ### 1. Générer les vidéos
@@ -180,8 +209,8 @@ python -m pytest -q tests
 
 Les tests couvrent la lecture des 4 formats, le nettoyage, le découpage, le
 script, le mode résumé (client Claude simulé), les illustrations (API Commons
-simulée), un montage complet (moteur `silent`) et le circuit de validation /
-publication (client YouTube simulé).
+simulée), un montage complet (moteur `silent`), le circuit de validation /
+publication (client YouTube simulé) et l'API du tableau de bord.
 
 ## Remarques
 
