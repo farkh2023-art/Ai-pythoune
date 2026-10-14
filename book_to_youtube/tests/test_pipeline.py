@@ -212,4 +212,4 @@ def test_scanned_pdf_gives_a_clear_ocr_message(tmp_path, config):
         doc.new_page().draw_rect((50, 50, 300, 400), color=(0, 0, 0), fill=(0.8, 0.8, 0.8))
     doc.save(tmp_path / "scan.pdf")
     with pytest.raises(SystemExit, match="scanné.*OCR"):
-        main.main(tmp_path / "scan.pdf", config)
+        main.main(tmp_path / "scan.pdf", {**config, "ocr_engine": "off"})

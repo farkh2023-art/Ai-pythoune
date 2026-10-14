@@ -11,6 +11,7 @@ Exemples :
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 import sys
@@ -19,8 +20,8 @@ import unicodedata
 from pathlib import Path
 
 from config import CONFIG
-from modules import (branding, cleaner, illustrations, prompts, reader, scripter, splitter,
-                     subtitles, summarizer, tts, uploader, video, visuals)
+from modules import (branding, cleaner, illustrations, ocr, prompts, reader, scripter,
+                     splitter, subtitles, summarizer, tts, uploader, video, visuals)
 
 DESCRIPTION_LABELS = {
     "fr": {"episode": "Épisode", "voice": "Narration : voix de synthèse.",
@@ -68,15 +69,17 @@ def main(book_path: str | Path, config: dict | None = None,
     video.check_ffmpeg()
 
     book = reader.load_book(book_path)                          # 1. Lecture
-    check_has_text(book)
+    check_has_text(book, config)
+    slug = slugify(book.title)
+    out_dir = Path(config["output_dir"]) / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    progress = Progress(out_dir / "progress.json", 0, book.title)
+    book = ensure_text(book, config, progress=progress)         #    (OCR si scanné)
     texte = cleaner.clean(book.text)                            # 2. Nettoyage
     episodes = splitter.split(texte, config)                    # 3. Découpage
     if not episodes:
         raise SystemExit("Aucun texte exploitable dans ce livre.")
 
-    slug = slugify(book.title)
-    out_dir = Path(config["output_dir"]) / slug
-    out_dir.mkdir(parents=True, exist_ok=True)
     splitter.save(episodes, Path(config["episodes_dir"]) / slug)
     manifest_path = out_dir / "manifest.json"
     manifest = (uploader.load_manifest(manifest_path) if manifest_path.exists() else
@@ -92,7 +95,7 @@ def main(book_path: str | Path, config: dict | None = None,
         channel_name=channel.narrated_name, log=print)
     brand = {"author": book.author, "channel": channel, "presentation": presentation}
     total = len(episodes)
-    progress = Progress(out_dir / "progress.json", total, book.title)
+    progress.total = total
     progress("decoupage")
     print(f"« {book.title} » : {total} épisode(s), "
           f"{sum(e.word_count for e in episodes)} mots.")
@@ -216,19 +219,42 @@ def main(book_path: str | Path, config: dict | None = None,
     return manifest_path
 
 
-def check_has_text(book: reader.Book) -> None:
-    """Un PDF scanné (pages en images) ne contient pas de texte : message clair."""
+def is_scanned(book: reader.Book) -> bool:
+    """PDF scanné (pages en images) : presque pas de texte extractible."""
     pages = book.text.count("\f") + 1
-    words = splitter.count_words(book.text)
-    if book.source.suffix.lower() == ".pdf" and words < 20 * pages:
-        raise SystemExit(
-            f"Ce PDF ne contient presque pas de texte ({words} mots pour {pages} pages) : "
-            "c'est sans doute un livre scanné, dont les pages sont des images. Passez-le "
-            "d'abord dans un outil de reconnaissance de texte (OCR), par exemple l'application "
-            "Google Drive (Ouvrir avec Google Docs) ou https://www.ilovepdf.com/fr/pdf-ocr, "
-            "puis importez le PDF obtenu.")
-    if words == 0:
+    return (book.source.suffix.lower() == ".pdf"
+            and splitter.count_words(book.text) < 20 * pages)
+
+
+def check_has_text(book: reader.Book, config: dict | None = None) -> None:
+    """Message clair pour un livre sans texte, avant de lancer quoi que ce soit."""
+    config = {**CONFIG, **(config or {})}
+    if is_scanned(book):
+        if ocr.engine(config) is None:
+            pages = book.text.count("\f") + 1
+            raise SystemExit(
+                f"Ce PDF ne contient presque pas de texte ({splitter.count_words(book.text)} "
+                f"mots pour {pages} pages) : c'est un livre scanné, dont les pages sont des "
+                "images. Pour la reconnaissance automatique du texte (OCR), configurez la clé "
+                "Claude (export ANTHROPIC_API_KEY=…) ou installez Tesseract "
+                "(voir le README, « Livres scannés »).")
+    elif splitter.count_words(book.text) == 0:
         raise SystemExit("Aucun texte exploitable dans ce livre.")
+
+
+def ensure_text(book: reader.Book, config: dict | None = None, *, client=None,
+                progress=None, log=print) -> reader.Book:
+    """Livre avec son texte : OCR des pages si le PDF est scanné."""
+    config = {**CONFIG, **(config or {})}
+    if not is_scanned(book):
+        return book
+    try:
+        text = ocr.recognize(book.source, config, client=client, log=log, progress=progress)
+    except Exception as err:
+        raise SystemExit(f"Reconnaissance du texte (OCR) impossible : {err}") from err
+    if splitter.count_words(text) == 0:
+        raise SystemExit("OCR : aucun texte reconnu dans ce PDF scanné.")
+    return dataclasses.replace(book, text=text)
 
 
 def youtube_title(book_title: str, ep: splitter.Episode, config: dict) -> str:
@@ -346,6 +372,8 @@ def write_presentation(book_path: str | Path, config: dict | None = None,
     slug = slugify(book.title)
     if not force and (existing := branding.load_presentation(config, slug)):
         return existing
+    check_has_text(book, config)
+    book = ensure_text(book, config, client=client)
     channel = branding.load_channel(config)
     text = branding.generate_presentation(config, book_title=book.title, author=book.author,
                                           text=cleaner.clean(book.text),

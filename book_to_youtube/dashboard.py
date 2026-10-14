@@ -229,6 +229,7 @@ def environment() -> dict:
         "edge_tts": has("edge_tts"),
         "gtts": has("gtts"),
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "tesseract": bool(shutil.which("tesseract")),
         "youtube_api": has("googleapiclient") and has("google_auth_oauthlib"),
         "client_secrets": Path(CONFIG["client_secrets"]).exists(),
         "youtube_token": Path(CONFIG["token_file"]).exists(),

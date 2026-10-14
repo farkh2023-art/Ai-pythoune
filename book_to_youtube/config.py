@@ -44,6 +44,12 @@ CONFIG = {
     "summary_minutes": 5,  # durée visée d'un épisode résumé
     "summary_model": "claude-opus-5-5",
     "summary_effort": "medium",  # "low", "medium", "high"…
+    # --- OCR des PDF scannés (pages en images) -------------------------------
+    # "auto" : Claude si une clé est configurée, sinon Tesseract s'il est installé ;
+    # "claude", "tesseract" ou "off".
+    "ocr_engine": "auto",
+    "ocr_batch_pages": 4,  # pages envoyées à Claude par requête
+    "ocr_effort": "low",
     "add_intro": True,
     # Générique : la présentation du livre (data/episodes/<livre>/presentation.txt)
     # est lue au début de chaque épisode ; False = seulement affichée.

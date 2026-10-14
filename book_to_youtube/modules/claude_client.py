@@ -1,4 +1,4 @@
-"""Appel commun à l'API Claude (résumés, prompts d'images).
+"""Appel commun à l'API Claude (résumés, prompts d'images, OCR).
 
 Authentification : variable d'environnement ``ANTHROPIC_API_KEY`` (ou un
 profil ``ant auth login``).
@@ -21,9 +21,12 @@ def available() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
 
-def ask(system: str, prompt: str, config: dict, client=None, schema: dict | None = None,
+def ask(system: str, prompt: str | list, config: dict, client=None, schema: dict | None = None,
         what: str = "cette demande") -> str:
-    """Envoie une requête à Claude et renvoie le texte (JSON valide si `schema`)."""
+    """Envoie une requête à Claude et renvoie le texte (JSON valide si `schema`).
+
+    `prompt` : texte, ou liste de blocs de contenu (images + texte pour l'OCR).
+    """
     if client is None:
         import anthropic
         client = anthropic.Anthropic()
@@ -56,7 +59,7 @@ def ask(system: str, prompt: str, config: dict, client=None, schema: dict | None
     return text
 
 
-def ask_json(system: str, prompt: str, config: dict, schema: dict, client=None,
+def ask_json(system: str, prompt: str | list, config: dict, schema: dict, client=None,
              what: str = "cette demande") -> dict:
     text = ask(system, prompt, config, client, schema, what)
     try:
