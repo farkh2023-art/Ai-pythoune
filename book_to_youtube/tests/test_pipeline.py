@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 
@@ -140,3 +141,36 @@ def test_reusable_build_options():
             "--force", "--theme", "South Africa", "--max-episodes=2"]
     assert main._reusable_options(argv, "data/input/x.pdf") == [
         "--no-zoom", "--style", "illustre", "--theme", "South Africa"]
+
+
+def test_prompts_then_personal_image_in_video(tmp_path, config, monkeypatch):
+    """Import → prompts → image déposée pour la scène 2 → vidéo : l'image y est bien."""
+    from PIL import Image
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    data = tmp_path / "data"
+    cfg = {**config, "data_dir": data, "visual_style": "illustre", "ken_burns": False,
+           "illustration_source": "dossier", "scene_seconds": 20, "words_per_minute": 300}
+    body = " ".join(["Une phrase assez banale sur la plage."] * 60)
+    book = tmp_path / "livre.txt"
+    book.write_text(f"Chapitre 1\n\n{body}", encoding="utf-8")
+
+    main.main(book, cfg, prompts_only=True)
+    folder = data / "illustrations" / "livre" / "episode_001"
+    scenes = json.loads((folder / "scenes.json").read_text())["scenes"]
+    assert len(scenes) >= 3 and (data / "illustrations/livre/PROMPTS.md").exists()
+    assert not list((tmp_path / "output_dir" / "livre").glob("*.mp4"))  # pas de vidéo
+
+    Image.new("RGB", (1280, 720), (255, 0, 0)).save(folder / "scene_02.jpg")  # rouge vif
+    manifest = main.main(book, cfg)
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    assert ep["image_credits"] == []  # vos images ne demandent pas de crédit
+
+    # Image du milieu de la scène 2 : le fond (hors bandeau) doit être rouge.
+    video = manifest.parent / ep["video"]
+    frame = tmp_path / "frame.png"
+    # 2e scène ≈ entre 20 et 40 s de texte estimé, après un générique de quelques secondes.
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", "30", "-i", str(video),
+                    "-frames:v", "1", str(frame)], check=True)
+    r, g, b = Image.open(frame).convert("RGB").getpixel((600, 200))
+    assert r > 180 and g < 80 and b < 80, (r, g, b)

@@ -36,13 +36,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from config import CONFIG
-from modules import uploader
+from modules import branding, illustrations, prompts, uploader
 from modules.reader import SUPPORTED_EXTENSIONS
 
 BASE_DIR = Path(__file__).resolve().parent
 PAGE = BASE_DIR / "dashboard-AI-pythoune.html"
 LOG_DIR = Path(CONFIG["data_dir"]) / "logs"
 MEDIA_TYPES = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".srt": "text/plain; charset=utf-8"}
+IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+               ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
+               ".md": "text/markdown; charset=utf-8"}
 
 # Options du formulaire « Générer » -> options de `main.py build`.
 BUILD_FLAGS = {
@@ -52,6 +55,7 @@ BUILD_FLAGS = {
     "rate": "--rate", "style": "--style", "scene_seconds": "--scene-seconds",
     "theme": "--theme", "image_hint": "--image-hint", "resolution": "--resolution",
     "fps": "--fps", "episodes": "--episodes", "max_episodes": "--max-episodes",
+    "images": "--images", "image_style": "--image-style",
 }
 BUILD_SWITCHES = {"no_zoom": "--no-zoom", "force": "--force"}
 
@@ -170,9 +174,15 @@ def list_series(job: Job | None) -> list[dict]:
                 if ep.get(key):
                     ep[f"{key}_url"] = f"/media/{urllib.parse.quote(slug)}/{urllib.parse.quote(ep[key])}"
         # La progression ne compte que si elle appartient à la tâche en cours.
-        active = bool(job and job.kind == "build" and progress
+        active = bool(job and job.kind in ("build", "prompts") and progress
                       and progress.get("updated", 0) >= job.started - 1)
         counts = {s: sum(1 for e in episodes if e.get("status") == s) for s in uploader.STATUSES}
+        images = {}
+        for number in [p_["number"] for p_ in planned] or [e["number"] for e in episodes]:
+            scenes = prompts.scene_status(CONFIG, slug, number)
+            if scenes:
+                images[number] = {"scenes": len(scenes),
+                                  "mine": sum(1 for sc in scenes if sc["fichier"])}
         series.append({
             "slug": slug,
             "title": manifest["book"].get("title", slug),
@@ -185,6 +195,10 @@ def list_series(job: Job | None) -> list[dict]:
             "playlist_id": manifest.get("playlist_id"),
             "build_options": manifest.get("build_options", []),
             "progress": progress if active else None,
+            "presentation": branding.load_presentation(CONFIG, slug),
+            "images": images,
+            "prompts_index": (f"/illus/{slug}/PROMPTS.md" if (
+                illustrations.illustrations_root(CONFIG) / slug / "PROMPTS.md").exists() else None),
             "manifest": str(folder / "manifest.json"),
         })
     return series
@@ -207,9 +221,18 @@ def environment() -> dict:
     }
 
 
+def channel_state() -> dict:
+    channel = branding.load_channel(CONFIG)
+    return {"name": channel.name, "spoken_name": channel.spoken_name, "slogan": channel.slogan,
+            "narrated_name": channel.narrated_name,
+            "logo_url": (f"/channel/{channel.logo.name}?v={int(channel.logo.stat().st_mtime)}"
+                         if channel.logo else None)}
+
+
 def state() -> dict:
     job = RUNNER.current or (RUNNER.jobs[-1] if RUNNER.jobs else None)
     return {
+        "channel": channel_state(),
         "books": list_books(),
         "series": list_series(RUNNER.current),
         "job": asdict(job) if job else None,
@@ -251,6 +274,57 @@ def build_args(book: str, options: dict) -> list[str]:
 def action_build(body: dict) -> Job:
     args = build_args(body["book"], body.get("options", {}))
     return RUNNER.start("build", f"Génération — {body['book']}", args, book=body["book"])
+
+
+def action_prompts(body: dict) -> Job:
+    """Prépare les prompts d'images et les dossiers de scènes (sans voix ni vidéo)."""
+    args = build_args(body["book"], body.get("options", {})) + ["--prompts-only"]
+    return RUNNER.start("prompts", f"Préparation des images — {body['book']}", args,
+                        book=body["book"])
+
+
+def _series_slug(slug: str) -> str:
+    """Série existante (dossier de sortie créé) ; le manifeste n'est pas nécessaire."""
+    if not re.fullmatch(r"[a-z0-9-]+", slug or ""):
+        raise ValueError("Série invalide.")
+    if not (Path(CONFIG["output_dir"]) / slug).is_dir():
+        raise FileNotFoundError(f"Série introuvable : {slug}")
+    return slug
+
+
+def action_channel(body: dict) -> dict:
+    branding.save_channel(CONFIG, str(body.get("name", ""))[:100],
+                          str(body.get("slogan", ""))[:150], str(body.get("spoken_name", ""))[:100])
+    return channel_state()
+
+
+def action_presentation(body: dict) -> dict:
+    text = str(body.get("text", ""))[:3000]
+    branding.save_presentation(CONFIG, _series_slug(body["slug"]), text)
+    return {"text": text}
+
+
+def _book_title(slug: str) -> str:
+    manifest = _read_json(Path(CONFIG["output_dir"]) / slug / "manifest.json", {})
+    return manifest.get("book", {}).get("title") or slug
+
+
+def scenes_for(slug: str, number: int) -> list[dict]:
+    _series_slug(slug)
+    scenes = prompts.scene_status(CONFIG, slug, number)
+    for sc in scenes:
+        if sc["fichier"]:
+            stamp = int((illustrations.episode_dir(CONFIG, slug, number) / sc["fichier"])
+                        .stat().st_mtime)
+            sc["url"] = f"/illus/{slug}/episode_{number:03d}/{sc['fichier']}?v={stamp}"
+    return scenes
+
+
+def action_delete_scene_image(body: dict) -> dict:
+    slug, number, scene = _series_slug(body["slug"]), int(body["episode"]), int(body["scene"])
+    prompts.delete_scene_image(CONFIG, slug, number, scene)
+    prompts.write_book_index(CONFIG, slug, _book_title(slug))
+    return {"scenes": scenes_for(slug, number)}
 
 
 def action_regenerate(body: dict) -> Job:
@@ -363,6 +437,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(state())
             if url.path == "/api/log":
                 return self._json(read_log(query["id"][0], int(query.get("offset", ["0"])[0])))
+            if url.path == "/api/scenes":
+                return self._json({"scenes": scenes_for(query["slug"][0],
+                                                        int(query["episode"][0]))})
+            if url.path.startswith("/channel/"):
+                path = branding.channel_dir(CONFIG) / Path(urllib.parse.unquote(url.path)).name
+                if path.name not in branding.LOGO_NAMES or not path.is_file():
+                    return self._error("Logo introuvable.", HTTPStatus.NOT_FOUND)
+                return self._send_file(path, IMAGE_TYPES[path.suffix.lower()])
+            if url.path.startswith("/illus/"):
+                parts = [urllib.parse.unquote(p) for p in url.path.split("/")[2:]]
+                root = illustrations.illustrations_root(CONFIG).resolve()
+                path = root.joinpath(_series_slug(parts[0]), *parts[1:]).resolve()
+                if (not path.is_relative_to(root) or path.suffix.lower() not in IMAGE_TYPES
+                        or not path.is_file()):
+                    return self._error("Fichier introuvable.", HTTPStatus.NOT_FOUND)
+                return self._send_file(path, IMAGE_TYPES[path.suffix.lower()])
             if url.path.startswith("/media/"):
                 _, _, slug, name = url.path.split("/", 3)
                 folder = _series_dir(urllib.parse.unquote(slug))
@@ -382,8 +472,24 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path == "/api/books":
                 return self._json(self._receive_book(query))
+            if url.path == "/api/logo":
+                suffix = Path(query.get("name", [""])[0]).suffix
+                branding.save_logo(CONFIG, self._raw_body(5_000_000), suffix)
+                return self._json(channel_state())
+            if url.path == "/api/scene-image":
+                slug = _series_slug(query["slug"][0])
+                number, scene = int(query["episode"][0]), int(query["scene"][0])
+                suffix = Path(query.get("name", [""])[0]).suffix
+                prompts.save_scene_image(CONFIG, slug, number, scene,
+                                         self._raw_body(25_000_000), suffix)
+                prompts.write_book_index(CONFIG, slug, _book_title(slug))
+                return self._json({"scenes": scenes_for(slug, number)})
             body = self._body()
             routes = {
+                "/api/prompts": lambda: asdict(action_prompts(body)),
+                "/api/channel": lambda: action_channel(body),
+                "/api/presentation": lambda: action_presentation(body),
+                "/api/scene-image-delete": lambda: action_delete_scene_image(body),
                 "/api/build": lambda: asdict(action_build(body)),
                 "/api/regenerate": lambda: asdict(action_regenerate(body)),
                 "/api/publish": lambda: asdict(action_publish(body)),
@@ -398,6 +504,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(str(err), HTTPStatus.CONFLICT)
         except (FileNotFoundError, KeyError, ValueError, PermissionError) as err:
             return self._error(str(err) or err.__class__.__name__)
+
+    def _raw_body(self, limit: int) -> bytes:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > limit:
+            raise ValueError(f"Fichier trop volumineux (maximum {limit // 1_000_000} Mo).")
+        data = self.rfile.read(length)
+        if len(data) != length:
+            raise ValueError("Envoi interrompu.")
+        return data
 
     def _receive_book(self, query: dict) -> dict:
         """Import d'un livre depuis le navigateur (corps brut de la requête)."""

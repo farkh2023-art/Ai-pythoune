@@ -109,3 +109,39 @@ def test_paths_cannot_escape_data_folders(server):
     assert call(base, "/api/build", {"book": "../../config.py", "options": {}})[0] == 400
     assert call(base, "/api/review", {"slug": "../x", "episodes": [1], "action": "approve"})[0] == 400
     assert call(base, "/media/..%2F..%2Fconfig.py/x.mp4?token=secret")[0] == 404
+
+
+def test_channel_presentation_prompts_and_scene_images(server):
+    base, data, _ = server
+    status, ch = call(base, "/api/channel", {"name": "Le GrenieR du SavoiR",
+                                             "spoken_name": "Le Grenier du Savoir",
+                                             "slogan": "Le Savoir de demain"})
+    assert status == 200 and ch["narrated_name"] == "Le Grenier du Savoir"
+    status, ch = call(base, "/api/logo?name=logo.png", raw=b"\x89PNG fake")
+    assert status == 200 and ch["logo_url"].startswith("/channel/logo.png")
+    assert call(base, "/api/logo?name=logo.gif", raw=b"x")[0] == 400
+
+    body = " ".join(["Une phrase de test assez banale sur la plage."] * 40)
+    call(base, "/api/books?name=livre.txt", raw=f"Chapitre 1\n\n{body}".encode())
+    status, job = call(base, "/api/prompts", {"book": "livre.txt", "options": {"style": "illustre"}})
+    assert status == 200 and job["kind"] == "prompts"
+    state = wait_job(base)
+    assert state["job"]["status"] == "termine", call(base, f"/api/log?id={job['id']}")[1]["text"]
+    (series,) = state["series"]
+    assert series["episodes"] == [] and series["images"]["1"]["mine"] == 0  # aucune vidéo
+    assert series["prompts_index"] == "/illus/livre/PROMPTS.md"
+
+    assert call(base, "/api/presentation", {"slug": "livre", "text": "Un livre passionnant."})[0] == 200
+    _, state = call(base, "/api/state")
+    assert state["series"][0]["presentation"] == "Un livre passionnant."
+
+    _, scenes = call(base, "/api/scenes?slug=livre&episode=1")
+    assert scenes["scenes"] and scenes["scenes"][0]["prompt"]
+    status, scenes = call(base, "/api/scene-image?slug=livre&episode=1&scene=1&name=photo.jpeg",
+                          raw=b"jpeg")
+    assert status == 200 and scenes["scenes"][0]["fichier"] == "scene_01.jpg"
+    with urllib.request.urlopen(f"{base}{scenes['scenes'][0]['url']}&token=secret") as image:
+        assert image.read() == b"jpeg"
+    _, scenes = call(base, "/api/scene-image-delete", {"slug": "livre", "episode": 1, "scene": 1})
+    assert scenes["scenes"][0]["fichier"] is None
+    assert call(base, "/illus/livre/..%2F..%2Finput%2Flivre.txt?token=secret")[0] == 404

@@ -43,10 +43,13 @@
                  color: var(--text); border-radius: 8px; padding: 7px 12px; cursor: pointer;
                  text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
   button:hover { border-color: var(--muted); }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.primary, .btn.primary { background: var(--accent); color: var(--accent-ink);
+                                  border-color: var(--accent); }
   button.danger { color: var(--bad); }
   button:disabled { opacity: .45; cursor: not-allowed; }
-  button.small { padding: 4px 9px; font-size: 13px; }
+  button.small, .btn.small { padding: 4px 9px; font-size: 13px; }
+  label.btn { display: inline-flex; color: var(--text); }
+  label.btn.primary { color: var(--accent-ink); }
   input, select, textarea { font: inherit; color: var(--text); background: var(--panel);
                             border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
                             width: 100%; }
@@ -107,8 +110,9 @@
   @media (max-width: 620px) { .toolbar .sel { flex-basis: 100%; } }
   .chips button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
   .books { display: grid; gap: 6px; }
-  .book { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line);
-          border-radius: 10px; padding: 8px 10px; }
+  .book { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+          border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .book > .grow { min-width: 180px; }
   .env { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
   .env div { font-size: 13.5px; }
   dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
@@ -126,6 +130,20 @@
            max-width: calc(100vw - 32px); display: none; }
   .empty { padding: 18px; text-align: center; color: var(--muted); border: 1px dashed var(--line);
            border-radius: 10px; }
+  .logo-prev { width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
+               background: var(--panel-2); border: 1px solid var(--line); flex: none; }
+  .scenes { display: grid; gap: 10px; }
+  .scene { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid;
+           grid-template-columns: 128px 1fr; gap: 10px; }
+  .scene .img { width: 128px; height: 72px; border-radius: 8px; object-fit: cover;
+                background: var(--panel-2); display: grid; place-items: center;
+                color: var(--muted); font-size: 12px; text-align: center; }
+  .scene .prompt { font-size: 13px; background: var(--panel-2); border-radius: 8px;
+                   padding: 6px 8px; margin: 6px 0; max-height: 7.5em; overflow: auto; }
+  .scene .excerpt { font-size: 12.5px; color: var(--muted); font-style: italic; }
+  @media (max-width: 520px) { .scene { grid-template-columns: 1fr; }
+                              .scene .img { width: 100%; height: auto; aspect-ratio: 16 / 9; } }
+  details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
 </style>
@@ -158,6 +176,26 @@
     <pre class="log" id="jobLog" hidden></pre>
   </section>
 
+  <section class="card" id="channelCard">
+    <h2>Ma chaîne</h2>
+    <div class="row" style="align-items:flex-start">
+      <div style="display:grid; gap:6px; justify-items:center">
+        <img class="logo-prev" id="logoPrev" alt="Logo de la chaîne" hidden>
+        <div class="logo-prev" id="logoEmpty" style="display:grid;place-items:center;font-size:12px"
+             >Logo</div>
+        <label class="btn small">Changer
+          <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp" hidden></label>
+      </div>
+      <div class="grow" style="display:grid; gap:8px; min-width:200px">
+        <label>Nom affiché <input id="chName" placeholder="ex. Le GrenieR du SavoiR"></label>
+        <label>Nom prononcé par la voix <input id="chSpoken" placeholder="ex. Le Grenier du Savoir"></label>
+        <label>Slogan <input id="chSlogan" placeholder="ex. Le Savoir de demain"></label>
+        <div class="row"><span class="muted grow" id="chPreview"></span>
+          <button class="primary small" id="chSave">Enregistrer</button></div>
+      </div>
+    </div>
+  </section>
+
   <section class="card">
     <h2><span class="n">1</span> Importer un livre</h2>
     <div class="row">
@@ -186,7 +224,11 @@
 <!-- Générer une série -->
 <dialog id="buildDialog">
   <form method="dialog" class="inner" id="buildForm">
-    <h2 style="margin:0">Générer la série — <span id="buildBook"></span></h2>
+    <h2 style="margin:0"><span id="buildMode">Générer la série</span> — <span id="buildBook"></span></h2>
+    <p class="muted" id="buildHelp" style="margin:0" hidden>Découpe le livre en épisodes et en scènes,
+      puis écrit un prompt d'image par scène (Claude si une clé API est configurée). Aucune voix ni
+      vidéo n'est produite : créez vos images, déposez-les, puis lancez la génération avec les
+      <strong>mêmes réglages de découpage</strong>.</p>
     <fieldset>
       <legend>Découpage</legend>
       <div class="grid2">
@@ -247,6 +289,14 @@
           <input name="theme" placeholder="ex. South Africa veld"></label>
         <label>Mot ajouté aux recherches
           <input name="image_hint" placeholder="ex. painting"></label>
+        <label>Source des images
+          <select name="images">
+            <option value="dossier+commons">Mes images, sinon Wikimedia Commons</option>
+            <option value="dossier">Mes images uniquement</option>
+            <option value="commons">Wikimedia Commons uniquement</option>
+          </select></label>
+        <label>Style des prompts d'images
+          <input name="image_style" placeholder="ex. aquarelle, gravure ancienne…"></label>
       </div>
       <label class="check"><input type="checkbox" name="no_zoom"> Images fixes, sans zoom
         (montage ~4× plus rapide)</label>
@@ -257,6 +307,19 @@
       <button class="primary" value="go" id="buildGo">Lancer la génération</button>
     </div>
   </form>
+</dialog>
+
+<!-- Scènes d'un épisode : prompts et images personnelles -->
+<dialog id="sceneDialog">
+  <div class="inner">
+    <div class="row">
+      <h2 class="grow" style="margin:0" id="sceneHead"></h2>
+      <button id="sceneClose">Fermer</button>
+    </div>
+    <p class="muted" style="margin:0">Copiez le prompt dans votre générateur d'images, puis ajoutez
+      l'image obtenue (format paysage 16:9). Les scènes sans image utilisent Wikimedia Commons.</p>
+    <div class="scenes" id="sceneList"></div>
+  </div>
 </dialog>
 
 <!-- Épisode : aperçu, métadonnées, validation -->
@@ -303,7 +366,7 @@ async function api(path, body) {
   if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
   return data;
 }
-const media = url => `${url}?token=${encodeURIComponent(TOKEN)}`;
+const media = url => `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(TOKEN)}`;
 
 // --- Petits utilitaires d'affichage (aucun innerHTML avec des données) ----------------
 function el(tag, attrs = {}, ...children) {
@@ -334,10 +397,11 @@ function fmtElapsed(sec) {
 
 const STATUS = { a_generer: "À générer", a_valider: "À valider", valide: "Validé",
                  rejete: "Rejeté", publie: "Publié", en_cours: "En cours" };
-const STAGES = { decoupage: "Découpage du livre", resume: "Résumé par Claude", voix: "Voix off",
+const STAGES = { decoupage: "Découpage du livre", bible: "Bible visuelle du livre",
+                 prompts: "Prompts d'images", resume: "Résumé par Claude", voix: "Voix off",
                  illustrations: "Recherche d'illustrations", visuels: "Visuels",
                  montage: "Montage vidéo", termine: "Épisode terminé", fini: "Terminé" };
-const STAGE_ORDER = ["resume", "voix", "illustrations", "visuels", "montage"];
+const STAGE_ORDER = ["resume", "prompts", "voix", "illustrations", "visuels", "montage"];
 const JOB_STATUS = { en_cours: "En cours", termine: "Terminé", erreur: "Erreur", annule: "Annulé" };
 
 // --- État ---------------------------------------------------------------------------
@@ -358,7 +422,47 @@ async function refresh() {
 }
 
 function render() {
-  renderJob(); renderBooks(); renderSeries(); renderEnv(); renderHistory();
+  renderChannel(); renderJob(); renderBooks(); renderEnv(); renderHistory();
+  // Pas de reconstruction des séries pendant une saisie (présentation…).
+  const typing = $("seriesList").contains(document.activeElement)
+    && /^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement.tagName);
+  if (!typing) renderSeries();
+}
+
+// --- Ma chaîne -----------------------------------------------------------------------
+let channelLoaded = false;
+function renderChannel() {
+  const c = STATE.channel;
+  $("logoPrev").hidden = !c.logo_url; $("logoEmpty").hidden = !!c.logo_url;
+  if (c.logo_url) $("logoPrev").src = media(c.logo_url);
+  if (!channelLoaded) {  // ne pas écraser ce que l'utilisateur est en train de taper
+    $("chName").value = c.name; $("chSpoken").value = c.spoken_name; $("chSlogan").value = c.slogan;
+    channelLoaded = true;
+  }
+  $("chPreview").textContent = c.narrated_name ? `Lu : « Bienvenue sur ${c.narrated_name}. »` : "";
+}
+$("chSave").onclick = async () => {
+  try {
+    await api("/api/channel", { name: $("chName").value, spoken_name: $("chSpoken").value,
+                                slogan: $("chSlogan").value });
+    toast("Chaîne enregistrée."); refresh();
+  } catch (err) { toast(err.message); }
+};
+$("logoFile").onchange = () => sendFile($("logoFile").files[0],
+  f => `/api/logo?name=${encodeURIComponent(f.name)}`, () => { toast("Logo enregistré."); refresh(); });
+
+function sendFile(file, urlFor, done) {
+  if (!file) return;
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", urlFor(file));
+  xhr.setRequestHeader("X-Token", TOKEN);
+  xhr.onload = () => {
+    let data = {}; try { data = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status >= 400) return toast(data.error || "Échec de l'envoi.");
+    done(data);
+  };
+  xhr.onerror = () => toast("Échec de l'envoi.");
+  xhr.send(file);
 }
 
 // --- Tâche en cours -------------------------------------------------------------------
@@ -443,8 +547,13 @@ function renderBooks() {
         el("div", { style: "font-weight:600; overflow-wrap:anywhere" }, book.name),
         el("div", { class: "muted", style: "font-size:13px" }, fmtSize(book.size),
            series ? ` · série « ${series.title} »` : " · pas encore de série")),
-      el("button", { class: "primary small", disabled: busy || null,
-                     onclick: () => openBuild(book.name) }, series ? "Continuer…" : "Générer…")));
+      el("div", { class: "row" },
+        el("button", { class: "small", disabled: busy || null,
+                       title: "Découpe en scènes et écrit un prompt d'image par scène",
+                       onclick: () => openBuild(book.name, "prompts") }, "Préparer les images…"),
+        el("button", { class: "primary small", disabled: busy || null,
+                       onclick: () => openBuild(book.name, "build") },
+           series?.episodes.length ? "Continuer…" : "Générer…"))));
   }
 }
 
@@ -467,10 +576,13 @@ $("uploadBtn").onclick = () => {
 };
 
 // --- Formulaire de génération -----------------------------------------------------------
-let buildBook = null;
-function openBuild(name) {
-  buildBook = name;
+let buildBook = null, buildMode = "build";
+function openBuild(name, mode = "build") {
+  buildBook = name; buildMode = mode;
   $("buildBook").textContent = name;
+  $("buildMode").textContent = mode === "prompts" ? "Préparer les images" : "Générer la série";
+  $("buildHelp").hidden = mode !== "prompts";
+  $("buildGo").textContent = mode === "prompts" ? "Préparer les prompts" : "Lancer la génération";
   const form = $("buildForm");
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem("aip-build") || "{}"); } catch {}
@@ -491,8 +603,9 @@ $("buildForm").addEventListener("submit", async ev => {
   }
   try { localStorage.setItem("aip-build", JSON.stringify(options)); } catch {}
   try {
-    await api("/api/build", { book: buildBook, options });
-    toast("Génération lancée."); toggleLog(true); refresh();
+    await api(buildMode === "prompts" ? "/api/prompts" : "/api/build", { book: buildBook, options });
+    toast(buildMode === "prompts" ? "Préparation des prompts lancée." : "Génération lancée.");
+    toggleLog(true); refresh();
   } catch (err) { toast(err.message); }
 });
 
@@ -585,6 +698,9 @@ function seriesCard(s) {
     const meta = [r.ep?.duration ? fmtMin(r.ep.duration) : r.words ? `${r.words} mots` : "",
                   r.ep?.narration === "resume" ? "résumé" : ""].filter(Boolean).join(" · ");
     const actions = el("div", { class: "actions" });
+    const im = s.images[r.number];
+    if (im) actions.append(el("button", { class: "small", onclick: () => openScenes(s, r) },
+                              `Images ${im.mine}/${im.scenes}`));
     if (r.ep) actions.append(el("button", { class: "small", onclick: () => openEpisode(s, r.ep) },
                                 r.status === "publie" ? "Voir" : "Voir / valider"));
     if (r.ep?.youtube_id) actions.append(el("a", { class: "btn small", target: "_blank",
@@ -604,10 +720,32 @@ function seriesCard(s) {
       actions));
   }
 
+  const pres = el("textarea", { maxlength: "3000", style: "min-height:110px",
+    placeholder: "Introduction et description du livre, lues et affichées au début de chaque épisode (3 à 5 phrases)." });
+  pres.value = ui.presDraft?.[s.slug] ?? s.presentation;
+  pres.oninput = () => { (ui.presDraft ||= {})[s.slug] = pres.value; };
+  const totals = Object.values(s.images).reduce((a, x) => [a[0] + x.mine, a[1] + x.scenes], [0, 0]);
+  const extras = el("div", { style: "display:grid; gap:10px; margin-bottom:10px" },
+    el("details", { open: (ui.presOpen?.[s.slug] ?? !s.presentation) || null,
+                    ontoggle: e => { (ui.presOpen ||= {})[s.slug] = e.target.open; } },
+      el("summary", {}, "Présentation du livre (générique)"),
+      el("div", { style: "display:grid; gap:8px; margin-top:8px" }, pres,
+        el("div", { class: "row" },
+          el("span", { class: "muted grow", style: "font-size:13px" },
+             "Modifier la présentation ne décale pas les scènes ni vos images."),
+          el("button", { class: "small primary", onclick: async () => {
+            try { await api("/api/presentation", { slug: s.slug, text: pres.value });
+                  delete ui.presDraft?.[s.slug]; toast("Présentation enregistrée."); refresh(); }
+            catch (err) { toast(err.message); } } }, "Enregistrer")))),
+    totals[1] ? el("div", { class: "row" },
+      el("span", { class: "grow" }, `Vos images : ${totals[0]} / ${totals[1]} scènes`),
+      s.prompts_index ? el("a", { class: "btn small", target: "_blank", rel: "noopener",
+        href: media(s.prompts_index) }, "Tous les prompts") : "") : "");
+
   return el("section", { class: "card" },
     el("h2", {}, el("span", { class: "n" }, "2"), s.title,
        s.author ? el("span", { class: "muted", style: "font-weight:400" }, ` — ${s.author}`) : ""),
-    steps, toolbar, list,
+    extras, steps, toolbar, list,
     s.playlist_id ? el("p", { class: "muted", style: "margin:10px 0 0" },
       el("a", { href: `https://www.youtube.com/playlist?list=${s.playlist_id}`, target: "_blank",
                 rel: "noopener" }, "Playlist YouTube de la série ↗")) : "");
@@ -643,6 +781,52 @@ async function regenerate(series, number) {
         toast(`Génération de l'épisode ${number} lancée.`); toggleLog(true); refresh(); }
   catch (err) { toast(err.message); }
 }
+
+// --- Scènes : prompts et images personnelles -------------------------------------------
+let sceneCtx = null;
+async function openScenes(series, row) {
+  sceneCtx = { series, number: row.number };
+  $("sceneHead").textContent = `Épisode ${row.number} — ${row.title}`;
+  $("sceneList").replaceChildren(el("div", { class: "muted" }, "Chargement…"));
+  $("sceneDialog").showModal();
+  try { renderScenes((await api(`/api/scenes?slug=${series.slug}&episode=${row.number}`)).scenes); }
+  catch (err) { toast(err.message); }
+}
+function renderScenes(scenes) {
+  const { series, number } = sceneCtx;
+  $("sceneList").replaceChildren(...scenes.map(sc => {
+    const file = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", hidden: true,
+      onchange: e => sendFile(e.target.files[0],
+        f => `/api/scene-image?slug=${series.slug}&episode=${number}&scene=${sc.scene}&name=${encodeURIComponent(f.name)}`,
+        data => { renderScenes(data.scenes); toast(`Image de la scène ${sc.scene} enregistrée.`); refresh(); }) });
+    return el("div", { class: "scene" },
+      sc.url ? el("img", { class: "img", src: media(sc.url), alt: `Scène ${sc.scene}` })
+             : el("div", { class: "img" }, "Pas d'image", el("br"), "(Commons)"),
+      el("div", { style: "min-width:0" },
+        el("div", { class: "row" }, el("strong", { class: "grow" }, `Scène ${sc.scene}`),
+           el("span", { class: "muted", style: "font-size:12px" }, sc.fichier || `scene_${String(sc.scene).padStart(2, "0")}.jpg`)),
+        el("div", { class: "excerpt" }, `« ${sc.extrait} »`),
+        el("div", { class: "prompt" }, sc.prompt),
+        el("div", { class: "row" },
+          el("button", { class: "small", onclick: () => copyText(sc.prompt) }, "Copier le prompt"),
+          el("label", { class: "btn small primary" },
+             sc.url ? "Remplacer l'image" : "Ajouter une image", file),
+          sc.url ? el("button", { class: "small danger", onclick: async () => {
+            try { renderScenes((await api("/api/scene-image-delete",
+                  { slug: series.slug, episode: number, scene: sc.scene })).scenes); refresh(); }
+            catch (err) { toast(err.message); } } }, "Retirer") : "")));
+  }));
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast("Prompt copié."); }
+  catch {  // http://127.0.0.1 : presse-papiers parfois indisponible, repli manuel
+    const area = el("textarea", { style: "position:fixed;opacity:0" }); area.value = text;
+    document.body.append(area); area.select();
+    try { document.execCommand("copy"); toast("Prompt copié."); } catch { toast("Copie impossible."); }
+    area.remove();
+  }
+}
+$("sceneClose").onclick = () => $("sceneDialog").close();
 
 // --- Fiche épisode --------------------------------------------------------------------
 let current = null;
