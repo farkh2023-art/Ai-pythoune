@@ -166,3 +166,33 @@ def test_manual_upload_from_dashboard(server):
     assert status == 200 and ep["status"] == "publie"
     _, state = call(base, "/api/state")
     assert state["series"][0]["counts"]["publie"] == 1
+
+
+def test_presentation_draft_requires_api_key(server):
+    base, data, _ = server
+    body = " ".join(["Une phrase de test assez banale."] * 30)
+    call(base, "/api/books?name=livre.txt", raw=f"Chapitre 1\n\n{body}".encode())
+    call(base, "/api/prompts", {"book": "livre.txt", "options": {}})
+    wait_job(base)
+    status, out = call(base, "/api/presentation-draft", {"slug": "livre"})
+    assert status == 400 and "ANTHROPIC_API_KEY" in out["error"]
+
+
+def test_presentation_draft_is_proposed_not_saved(server, monkeypatch):
+    base, data, dashboard = server
+    body = " ".join(["Une phrase de test assez banale."] * 30)
+    call(base, "/api/books?name=livre.txt", raw=f"Chapitre 1\n\n{body}".encode())
+    call(base, "/api/prompts", {"book": "livre.txt", "options": {}})
+    wait_job(base)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    seen = {}
+
+    def fake(config, **kwargs):
+        seen.update(kwargs)
+        return "Proposition de Claude."
+    monkeypatch.setattr(dashboard.branding, "generate_presentation", fake)
+    assert call(base, "/api/presentation-draft", {"slug": "livre"}) == (
+        200, {"text": "Proposition de Claude."})
+    assert "Une phrase de test" in seen["text"] and seen["book_title"] == "Livre"
+    _, state = call(base, "/api/state")
+    assert state["series"][0]["presentation"] == ""  # rien d'enregistré sans validation

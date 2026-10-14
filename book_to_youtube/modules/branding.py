@@ -88,3 +88,77 @@ def save_presentation(config: dict, slug: str, text: str) -> None:
     path = presentation_path(config, slug)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.strip() + "\n", encoding="utf-8")
+
+
+# --- Présentation rédigée par Claude -------------------------------------------------
+
+PRESENTATION_PROMPTS = {
+    "fr": (
+        "Tu écris la présentation d'un livre, lue par une voix de synthèse au début de chaque "
+        "épisode d'une série YouTube qui le raconte.",
+        "Écris la présentation du livre « {book} »{author} pour la chaîne « {channel} ».\n\n"
+        "Consignes :\n"
+        "- 3 à 5 phrases, 60 à 90 mots, en français, au présent.\n"
+        "- Ton chaleureux et captivant : l'époque, le lieu, le héros et l'enjeu, pour donner "
+        "envie d'écouter la suite.\n"
+        "- Ne révèle ni la fin ni les grands rebondissements.\n"
+        "- Pas de formule d'accueil et ne commence pas par le titre ni l'auteur : ils sont "
+        "déjà annoncés juste avant.\n"
+        "- Prose simple à lire à voix haute : pas de markdown, de liste, ni de guillemets "
+        "autour du texte. N'invente rien qui ne soit dans le livre.\n"
+        "- Réponds uniquement avec la présentation.\n\n<livre>\n{text}\n</livre>",
+    ),
+    "en": (
+        "You write the presentation of a book, read by a text-to-speech voice at the start of "
+        "every episode of a YouTube series that narrates it.",
+        "Write the presentation of the book \"{book}\"{author} for the channel \"{channel}\".\n\n"
+        "Guidelines:\n"
+        "- 3 to 5 sentences, 60 to 90 words, in English, present tense.\n"
+        "- Warm and gripping: the era, the place, the hero and the stakes.\n"
+        "- Do not reveal the ending or major twists.\n"
+        "- No greeting, and do not start with the title or author: they are announced just "
+        "before.\n"
+        "- Plain prose for reading aloud: no markdown, lists or quotes around the text. "
+        "Do not invent anything that is not in the book.\n"
+        "- Reply with the presentation only.\n\n<book>\n{text}\n</book>",
+    ),
+}
+
+
+def generate_presentation(config: dict, *, book_title: str, author: str | None, text: str,
+                          channel_name: str = "", client=None) -> str:
+    """Fait rédiger la présentation du livre par Claude (clé API requise)."""
+    import re
+
+    from . import claude_client
+
+    lang = config.get("language", "fr")
+    system, template = PRESENTATION_PROMPTS.get(lang, PRESENTATION_PROMPTS["fr"])
+    by = (" de " if lang == "fr" else " by ") + author if author else ""
+    prompt = template.format(book=book_title, author=f",{by}" if author else "",
+                             channel=channel_name or ("la chaîne" if lang == "fr" else "the channel"),
+                             text=text[:400_000])
+    answer = claude_client.ask(system, prompt, config, client, what="la présentation du livre")
+    answer = re.sub(r"[*_#`]", "", answer)
+    answer = re.sub(r"\s+", " ", answer).strip().strip("«»\"“”").strip()
+    return answer
+
+
+def ensure_presentation(config: dict, slug: str, *, book_title: str, author: str | None,
+                        text: str, channel_name: str = "", client=None, log=print) -> str:
+    """Présentation existante, sinon rédigée par Claude si possible (puis enregistrée)."""
+    from . import claude_client
+
+    existing = load_presentation(config, slug)
+    if existing or not config.get("auto_presentation", True) or (
+            client is None and not claude_client.available()):
+        return existing
+    try:
+        text_ = generate_presentation(config, book_title=book_title, author=author, text=text,
+                                      channel_name=channel_name, client=client)
+    except Exception as err:
+        log(f"    présentation : rédaction par Claude impossible ({err})")
+        return ""
+    save_presentation(config, slug, text_)
+    log(f"Présentation rédigée par Claude (modifiable) : {presentation_path(config, slug)}")
+    return text_

@@ -86,7 +86,9 @@ def main(book_path: str | Path, config: dict | None = None,
     if build_options is not None:
         manifest["build_options"] = build_options
     channel = branding.load_channel(config)
-    presentation = branding.load_presentation(config, slug)
+    presentation = branding.ensure_presentation(
+        config, slug, book_title=book.title, author=book.author, text=texte,
+        channel_name=channel.narrated_name, log=print)
     brand = {"author": book.author, "channel": channel, "presentation": presentation}
     total = len(episodes)
     progress = Progress(out_dir / "progress.json", total, book.title)
@@ -299,6 +301,10 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--prompts-only", action="store_true",
                    help="préparer seulement les prompts d'images et les dossiers de scènes")
 
+    pr = sub.add_parser("presentation", help="faire rédiger la présentation du livre par Claude")
+    pr.add_argument("book", type=Path)
+    pr.add_argument("--force", action="store_true", help="remplacer la présentation existante")
+
     for name, help_ in [("status", "état de la série"),
                         ("review", "relecture interactive par le créateur")]:
         sub.add_parser(name, help=help_).add_argument("manifest", type=Path)
@@ -314,6 +320,22 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--episodes", help="ex. 1,3,5-7 (défaut : tous les épisodes validés)")
     u.add_argument("--privacy", choices=["private", "unlisted", "public"])
     return parser
+
+
+def write_presentation(book_path: str | Path, config: dict | None = None,
+                       force: bool = False, client=None) -> str:
+    """Rédige (ou relit) la présentation du livre et l'enregistre."""
+    config = {**CONFIG, **(config or {})}
+    book = reader.load_book(book_path)
+    slug = slugify(book.title)
+    if not force and (existing := branding.load_presentation(config, slug)):
+        return existing
+    channel = branding.load_channel(config)
+    text = branding.generate_presentation(config, book_title=book.title, author=book.author,
+                                          text=cleaner.clean(book.text),
+                                          channel_name=channel.narrated_name, client=client)
+    branding.save_presentation(config, slug, text)
+    return text
 
 
 def _reusable_options(argv: list[str], book: str) -> list[str]:
@@ -359,6 +381,8 @@ def cli(argv: list[str] | None = None) -> int:
              prompts_only=args.prompts_only,
              build_options=_reusable_options(argv if argv is not None else sys.argv[1:],
                                              str(args.book)))
+    elif args.command == "presentation":
+        print(write_presentation(args.book, force=args.force))
     elif args.command == "status":
         print(uploader.summary(args.manifest))
     elif args.command == "review":

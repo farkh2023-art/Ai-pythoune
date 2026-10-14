@@ -309,6 +309,25 @@ def _book_title(slug: str) -> str:
     return manifest.get("book", {}).get("title") or slug
 
 
+def action_presentation_draft(body: dict) -> dict:
+    """Présentation proposée par Claude (non enregistrée : le créateur la relit d'abord)."""
+    from modules import claude_client, cleaner, reader
+
+    if not claude_client.available():
+        raise ValueError("Clé API Anthropic absente : lancez « export ANTHROPIC_API_KEY=… » "
+                         "avant « python dashboard.py ».")
+    folder = _series_dir(body["slug"])
+    manifest = uploader.load_manifest(folder / "manifest.json")
+    source = Path(manifest["book"].get("source", ""))
+    if not source.is_file():
+        raise FileNotFoundError(f"Livre source introuvable : {source}")
+    book = reader.load_book(source)
+    text = branding.generate_presentation(
+        CONFIG, book_title=book.title, author=book.author, text=cleaner.clean(book.text),
+        channel_name=branding.load_channel(CONFIG).narrated_name)
+    return {"text": text}
+
+
 def scenes_for(slug: str, number: int) -> list[dict]:
     _series_slug(slug)
     scenes = prompts.scene_status(CONFIG, slug, number)
@@ -502,6 +521,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/prompts": lambda: asdict(action_prompts(body)),
                 "/api/channel": lambda: action_channel(body),
                 "/api/presentation": lambda: action_presentation(body),
+                "/api/presentation-draft": lambda: action_presentation_draft(body),
                 "/api/scene-image-delete": lambda: action_delete_scene_image(body),
                 "/api/build": lambda: asdict(action_build(body)),
                 "/api/regenerate": lambda: asdict(action_regenerate(body)),
@@ -519,6 +539,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(str(err), HTTPStatus.CONFLICT)
         except (FileNotFoundError, KeyError, ValueError, PermissionError) as err:
             return self._error(str(err) or err.__class__.__name__)
+        except Exception as err:  # erreur de l'API Claude, réseau…
+            return self._error(f"{err.__class__.__name__} : {err}", HTTPStatus.BAD_GATEWAY)
 
     def _raw_body(self, limit: int) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)

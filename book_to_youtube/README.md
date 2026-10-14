@@ -136,6 +136,18 @@ apparaît aussi en haut de toutes les images et sur la miniature YouTube.
   Elle est lue au début de chaque épisode ; avec `read_presentation: False` dans
   `config.py`, elle est seulement affichée.
 
+**Présentation rédigée par Claude.** Avec une clé API Anthropic
+(`export ANTHROPIC_API_KEY=…`), si le livre n'a pas encore de présentation, Claude la
+rédige automatiquement lors de « Préparer les images » ou de la première génération :
+3 à 5 phrases sur l'époque, le lieu, le héros et l'enjeu, **sans dévoiler la fin**. Elle
+est enregistrée dans `presentation.txt` et reste modifiable ; une présentation existante
+n'est jamais remplacée automatiquement (`auto_presentation: False` pour désactiver).
+
+- Dans le tableau de bord, **Proposer avec Claude** affiche une nouvelle proposition
+  dans le champ : relisez-la, puis **Enregistrer**.
+- En ligne de commande : `python main.py presentation data/input/livre.pdf`
+  (`--force` pour remplacer la présentation existante).
+
 ### Vos propres images, scène par scène
 
 1. **Préparer les prompts** dès l'import du livre, sans voix ni vidéo :
