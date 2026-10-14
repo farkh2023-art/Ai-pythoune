@@ -206,7 +206,7 @@
     </div>
     <div class="bar" id="uploadBarWrap" style="margin-top:8px" hidden><div id="uploadBar"></div></div>
     <p class="muted" style="margin:8px 0 10px">PDF, EPUB, DOCX ou TXT. Le fichier est copié dans
-      <code>data/input/</code>.</p>
+      <code>data/input/</code>. Un PDF scanné (pages en images) est lu par OCR.</p>
     <div class="books" id="books"></div>
   </section>
 
@@ -435,7 +435,7 @@ function fmtElapsed(sec) {
 
 const STATUS = { a_generer: "À générer", a_valider: "À valider", valide: "Validé",
                  rejete: "Rejeté", publie: "Publié", en_cours: "En cours" };
-const STAGES = { decoupage: "Découpage du livre", bible: "Bible visuelle du livre",
+const STAGES = { ocr: "Reconnaissance du texte (OCR)", decoupage: "Découpage du livre", bible: "Bible visuelle du livre",
                  prompts: "Prompts d'images", resume: "Résumé par Claude", voix: "Voix off",
                  illustrations: "Recherche d'illustrations", visuels: "Visuels",
                  montage: "Montage vidéo", termine: "Épisode terminé", fini: "Terminé" };
@@ -532,7 +532,7 @@ function renderJob() {
       ? (STAGE_ORDER.indexOf(p.stage) + 0.5) / STAGE_ORDER.length : 0;
     pct = Math.min(100, Math.max(3, (others + frac) / total * 100));
     stage = p.episode ? `Épisode ${p.episode}/${p.total} — ${STAGES[p.stage] || p.stage}`
-                      : STAGES[p.stage] || p.stage;
+                      : (STAGES[p.stage] || p.stage) + (p.title ? ` — ${p.title}` : "");
     if (done) stage += ` · ${done} terminé(s) pendant cette tâche`;
   } else if (job.kind === "upload") {
     stage = "Envoi vers YouTube…";
@@ -973,7 +973,9 @@ function renderEnv() {
     [e.youtube_api, "Bibliothèques YouTube", "pip install google-api-python-client google-auth-oauthlib"],
     [e.client_secrets, "client_secrets.json (YouTube)", "voir le README, section Publication"],
     [e.youtube_token, "Chaîne YouTube autorisée", "se fait au premier envoi"],
-    [e.anthropic_key, "Clé Claude (mode résumé)", "export ANTHROPIC_API_KEY=…"],
+    [e.anthropic_key, "Clé Claude (résumés, prompts, OCR)", "export ANTHROPIC_API_KEY=…"],
+    [e.anthropic_key || e.tesseract, "OCR des PDF scannés" + (e.anthropic_key ? " (Claude)" : e.tesseract ? " (Tesseract)" : ""),
+     "clé Claude, ou pkg install tesseract (voir le README)"],
   ];
   $("env").replaceChildren(...items.map(([ok, label, hint]) =>
     el("div", {}, el("span", { style: `color:var(--${ok ? "ok" : "warn"})` }, ok ? "✓ " : "○ "), label,

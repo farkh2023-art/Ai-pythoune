@@ -10,6 +10,7 @@ créateur de la chaîne**.
 | Étape | Module | Entrée → Sortie |
 |---|---|---|
 | 1. Lecture | `modules/reader.py` | PDF / EPUB / DOCX / TXT → texte brut + titre/auteur |
+| — OCR (PDF scanné) | `modules/ocr.py` | images des pages → texte (Claude ou Tesseract) |
 | 2. Nettoyage | `modules/cleaner.py` | en-têtes, pieds de page, numéros de page, césures, retours à la ligne → paragraphes |
 | 3. Découpage | `modules/splitter.py` | texte → épisodes (chapitre, durée cible ou nombre de mots) |
 | 4. Script | `modules/scripter.py` | épisode → segments à lire (intro, texte, outro) |
@@ -49,6 +50,12 @@ avec **pypdf** (pur Python, plus lent mais équivalent pour ce projet). Conseils
 `--resolution 1280x720` pour un montage plus rapide, `termux-wake-lock` pour ne
 pas être interrompu écran éteint, et `cp ~/storage/downloads/livre.pdf data/input/`
 pour récupérer un livre téléchargé.
+
+Fonctions Claude (résumé, présentation, prompts d'images, OCR) : inutile
+d'installer le paquet `anthropic` sous Termux (sa dépendance pydantic-core se
+compile mal) ; sans lui, l'application appelle l'API directement en HTTP. Il
+suffit de définir la clé, par exemple dans `~/.bashrc` :
+`export ANTHROPIC_API_KEY=sk-ant-…`.
 
 ## Tableau de bord
 
@@ -113,6 +120,32 @@ Les résultats sont dans `data/output/<titre-du-livre>/` :
 `episode_001.mp4`, `episode_001.srt`, `episode_001.jpg` et `manifest.json`.
 Les textes découpés sont dans `data/episodes/` pour relecture. La synthèse vocale
 est mise en cache : une génération interrompue reprend là où elle s'était arrêtée.
+
+### Livres scannés (OCR)
+
+Un PDF scanné (photos ou captures d'écran des pages, sans texte sélectionnable)
+est reconnu automatiquement : ses pages passent par la **reconnaissance de
+texte (OCR)** avant le découpage, sans rien changer à la commande ni au tableau
+de bord (étape « Reconnaissance du texte (OCR) »).
+
+- **Avec la clé Claude** (`export ANTHROPIC_API_KEY=…`) : Claude lit les images
+  des pages, 4 par requête. Meilleure qualité, même sur des captures d'écran de
+  téléphone : barre d'état, boutons et numéros de page sont ignorés, les titres de
+  chapitre restent sur leur ligne.
+- **Sans clé, hors ligne : Tesseract.**
+  ```bash
+  # Termux
+  pkg install tesseract
+  curl -L -o $PREFIX/share/tessdata/fra.traineddata \
+       https://github.com/tesseract-ocr/tessdata_fast/raw/main/fra.traineddata
+  # Debian / Ubuntu : sudo apt install tesseract-ocr tesseract-ocr-fra
+  ```
+
+Le texte reconnu est mis en cache page par page dans `data/ocr/` : une
+génération interrompue ne relit pas les pages déjà traitées. Réglages dans
+`config.py` : `ocr_engine` (`auto`, `claude`, `tesseract`, `off`),
+`ocr_batch_pages`, `ocr_effort`. Pour relire ou corriger le texte, voir
+`data/episodes/<livre>/` après le découpage.
 
 ### Générique de la chaîne
 
