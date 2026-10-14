@@ -145,3 +145,24 @@ def test_channel_presentation_prompts_and_scene_images(server):
     _, scenes = call(base, "/api/scene-image-delete", {"slug": "livre", "episode": 1, "scene": 1})
     assert scenes["scenes"][0]["fichier"] is None
     assert call(base, "/illus/livre/..%2F..%2Finput%2Flivre.txt?token=secret")[0] == 404
+
+
+def test_manual_upload_from_dashboard(server):
+    base, data, _ = server
+    body = " ".join(["Une phrase de test assez banale."] * 30)
+    call(base, "/api/books?name=livre.txt", raw=f"Chapitre 1\n\n{body}".encode())
+    call(base, "/api/build", {"book": "livre.txt", "options": {"tts": "silent", "style": "slides",
+                                                               "resolution": "640x360"}})
+    wait_job(base)
+    assert call(base, "/api/manual-export", {"slug": "livre", "episode": 1})[0] == 400  # à valider
+    call(base, "/api/review", {"slug": "livre", "episodes": [1], "action": "approve"})
+    status, out = call(base, "/api/manual-export", {"slug": "livre", "episode": 1})
+    assert status == 200 and (Path(out["folder"]) / "video.mp4").is_file()
+    assert Path(out["folder"]).is_relative_to(data)  # hors Termux : data/envoi_manuel
+    assert call(base, "/api/mark-published", {"slug": "livre", "episode": 1,
+                                              "link": "pas un lien"})[0] == 400
+    status, ep = call(base, "/api/mark-published", {"slug": "livre", "episode": 1,
+                                                    "link": "https://youtu.be/dQw4w9WgXcQ"})
+    assert status == 200 and ep["status"] == "publie"
+    _, state = call(base, "/api/state")
+    assert state["series"][0]["counts"]["publie"] == 1

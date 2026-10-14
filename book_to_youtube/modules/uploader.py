@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import random
+import re
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +82,84 @@ def set_status(manifest_path: str | Path, numbers: list[int] | None, status: str
             changed.append(ep["number"])
     save_manifest(manifest, manifest_path)
     return changed
+
+
+# --- Envoi manuel (application YouTube / YouTube Studio) ----------------------------
+#
+# Les vidéos envoyées par l'API depuis un projet Google non audité restent privées.
+# L'envoi manuel contourne cette limite : les fichiers sont copiés dans un dossier
+# facile d'accès (Téléchargements sur Android), puis le créateur indique le lien de
+# la vidéo publiée pour garder le suivi de la série.
+
+_YOUTUBE_ID = re.compile(
+    r"(?:youtu\.be/|[?&]v=|/shorts/|/live/|/embed/|/video/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])")
+
+
+def default_export_root(config: dict) -> Path:
+    """Téléchargements du téléphone sous Termux, sinon data/envoi_manuel."""
+    downloads = Path.home() / "storage" / "downloads"
+    if downloads.is_dir():
+        return downloads / "AI-pythoune"
+    return Path(config["data_dir"]) / "envoi_manuel"
+
+
+def export_for_manual_upload(manifest_path: str | Path, number: int, export_root: Path) -> dict:
+    """Copie vidéo, miniature, sous-titres et texte (titre + description) d'un épisode validé."""
+    manifest_path = Path(manifest_path)
+    manifest = load_manifest(manifest_path)
+    ep = _episode(manifest, number)
+    if ep["status"] not in (APPROVED, PUBLISHED):
+        raise PermissionError("Validez d'abord cet épisode : seuls les épisodes validés "
+                              "peuvent être publiés.")
+    slug = manifest_path.parent.name
+    folder = export_root / slug / f"episode_{number:03d}"
+    folder.mkdir(parents=True, exist_ok=True)
+    base = manifest_path.parent
+    files = {}
+    for key, name in (("video", "video.mp4"), ("thumbnail", "miniature.jpg"),
+                      ("subtitles", "sous-titres.srt")):
+        if ep.get(key) and (base / ep[key]).is_file():
+            shutil.copy2(base / ep[key], folder / name)
+            files[key] = name
+    text = (f"TITRE\n{ep['youtube_title']}\n\nDESCRIPTION\n{ep['description']}\n\n"
+            f"TAGS\n{', '.join(ep.get('tags', []))}\n")
+    (folder / "titre_description.txt").write_text(text, encoding="utf-8")
+    files["text"] = "titre_description.txt"
+    downloads = Path.home() / "storage" / "downloads"
+    shown = (f"Téléchargements/{folder.relative_to(downloads)}"
+             if folder.is_relative_to(downloads) else str(folder))
+    return {"folder": str(folder), "shown": shown, "files": files, "title": ep["youtube_title"],
+            "description": ep["description"], "tags": ep.get("tags", [])}
+
+
+def parse_youtube_id(value: str) -> str:
+    value = (value or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
+        return value
+    match = _YOUTUBE_ID.search(value)
+    if not match:
+        raise ValueError("Lien YouTube non reconnu : collez l'adresse de la vidéo "
+                         "(ex. https://youtu.be/XXXXXXXXXXX).")
+    return match.group(1)
+
+
+def mark_published(manifest_path: str | Path, number: int, link: str) -> dict:
+    """Enregistre la publication manuelle d'un épisode validé."""
+    video_id = parse_youtube_id(link)
+    manifest = load_manifest(manifest_path)
+    ep = _episode(manifest, number)
+    if ep["status"] not in (APPROVED, PUBLISHED):
+        raise PermissionError("Validez d'abord cet épisode avant de le marquer comme publié.")
+    ep.update(status=PUBLISHED, youtube_id=video_id, published_at=_now(), manual_upload=True)
+    save_manifest(manifest, manifest_path)
+    return ep
+
+
+def _episode(manifest: dict, number: int) -> dict:
+    ep = next((e for e in manifest["episodes"] if e["number"] == int(number)), None)
+    if ep is None:
+        raise FileNotFoundError(f"Épisode {number} introuvable.")
+    return ep
 
 
 def summary(manifest_path: str | Path) -> str:

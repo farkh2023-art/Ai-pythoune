@@ -174,3 +174,32 @@ def test_prompts_then_personal_image_in_video(tmp_path, config, monkeypatch):
                     "-frames:v", "1", str(frame)], check=True)
     r, g, b = Image.open(frame).convert("RGB").getpixel((600, 200))
     assert r > 180 and g < 80 and b < 80, (r, g, b)
+
+
+def test_manual_upload_export_and_mark_published(manifest, tmp_path):
+    with pytest.raises(PermissionError):  # pas encore validé
+        uploader.export_for_manual_upload(manifest, 1, tmp_path / "dl")
+    uploader.set_status(manifest, [1], uploader.APPROVED)
+    out = uploader.export_for_manual_upload(manifest, 1, tmp_path / "dl")
+    folder = tmp_path / "dl" / manifest.parent.name / "episode_001"
+    assert out["folder"] == str(folder)
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "miniature.jpg", "sous-titres.srt", "titre_description.txt", "video.mp4"]
+    assert out["title"] in (folder / "titre_description.txt").read_text()
+
+    with pytest.raises(ValueError):
+        uploader.mark_published(manifest, 1, "https://www.youtube.com/@ma_chaine")
+    with pytest.raises(PermissionError):
+        uploader.mark_published(manifest, 2, "https://youtu.be/dQw4w9WgXcQ")  # non validé
+    ep = uploader.mark_published(manifest, 1, "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=5")
+    assert (ep["status"], ep["youtube_id"], ep["manual_upload"]) == ("publie", "dQw4w9WgXcQ", True)
+    # Un épisode publié à la main n'est jamais renvoyé par l'envoi automatique.
+    assert uploader.upload(manifest, {}, service=object(), log=lambda *_: None) == []
+
+
+@pytest.mark.parametrize("link", ["https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ",
+                                  "https://youtube.com/shorts/dQw4w9WgXcQ?si=abc",
+                                  "https://studio.youtube.com/video/dQw4w9WgXcQ/edit",
+                                  "https://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ"])
+def test_parse_youtube_links(link):
+    assert uploader.parse_youtube_id(link) == "dQw4w9WgXcQ"

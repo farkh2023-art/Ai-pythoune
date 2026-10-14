@@ -143,6 +143,8 @@
   .scene .excerpt { font-size: 12.5px; color: var(--muted); font-style: italic; }
   @media (max-width: 520px) { .scene { grid-template-columns: 1fr; }
                               .scene .img { width: 100%; height: auto; aspect-ratio: 16 / 9; } }
+  .steps-list { margin: 0; padding-left: 22px; display: grid; gap: 14px; }
+  .steps-list li::marker { color: var(--accent); font-weight: 700; }
   details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
@@ -322,6 +324,41 @@
   </div>
 </dialog>
 
+<!-- Envoi manuel : fichiers dans Téléchargements + application YouTube -->
+<dialog id="manualDialog">
+  <div class="inner">
+    <div class="row">
+      <h2 class="grow" style="margin:0" id="manualHead"></h2>
+      <button id="manualClose">Fermer</button>
+    </div>
+    <ol class="steps-list">
+      <li><strong>Fichiers prêts</strong>
+        <div class="muted" id="manualFolder">Préparation…</div></li>
+      <li><strong>Titre et description</strong> à coller dans YouTube
+        <div class="row" style="margin-top:6px">
+          <input id="manualTitle" readonly class="grow">
+          <button class="small" id="copyTitle">Copier</button></div>
+        <textarea id="manualDesc" readonly style="margin-top:6px; min-height:110px"></textarea>
+        <div class="row" style="justify-content:flex-end; margin-top:6px">
+          <button class="small" id="copyDesc">Copier la description</button></div></li>
+      <li><strong>Importer dans YouTube</strong>
+        <div class="muted">Dans l'application YouTube : <em>+ → Importer une vidéo</em>, choisissez
+          <code>video.mp4</code> dans le dossier ci-dessus, collez le titre et la description.
+          Puis dans YouTube Studio : miniature (<code>miniature.jpg</code>), sous-titres
+          (<code>sous-titres.srt</code>) et playlist de la série.</div>
+        <div class="row" style="margin-top:6px">
+          <a class="btn small" href="https://www.youtube.com/upload" target="_blank"
+             rel="noopener">Ouvrir YouTube ↗</a>
+          <a class="btn small" href="https://studio.youtube.com/" target="_blank"
+             rel="noopener">YouTube Studio ↗</a></div></li>
+      <li><strong>Une fois publiée</strong>, collez le lien de la vidéo
+        <div class="row" style="margin-top:6px">
+          <input id="manualLink" class="grow" placeholder="https://youtu.be/…" inputmode="url">
+          <button class="primary small" id="manualDone">Marquer comme publié</button></div></li>
+    </ol>
+  </div>
+</dialog>
+
 <!-- Épisode : aperçu, métadonnées, validation -->
 <dialog id="epDialog">
   <div class="inner">
@@ -339,6 +376,7 @@
       <button id="epPending">Remettre à valider</button>
       <button class="danger" id="epReject">Rejeter</button>
       <button class="primary" id="epApprove">Valider</button>
+      <button class="primary" id="epManual">Envoi manuel…</button>
     </div>
   </div>
 </dialog>
@@ -703,6 +741,9 @@ function seriesCard(s) {
                               `Images ${im.mine}/${im.scenes}`));
     if (r.ep) actions.append(el("button", { class: "small", onclick: () => openEpisode(s, r.ep) },
                                 r.status === "publie" ? "Voir" : "Voir / valider"));
+    if (r.status === "valide") actions.append(el("button", { class: "small",
+      title: "Préparer les fichiers et publier depuis l'application YouTube",
+      onclick: () => openManual(s, r.ep) }, "Envoi manuel"));
     if (r.ep?.youtube_id) actions.append(el("a", { class: "btn small", target: "_blank",
       rel: "noopener", href: `https://youtu.be/${r.ep.youtube_id}` }, "YouTube ↗"));
     if (r.status !== "publie" && r.status !== "en_cours" && s.build_options)
@@ -817,16 +858,50 @@ function renderScenes(scenes) {
             catch (err) { toast(err.message); } } }, "Retirer") : "")));
   }));
 }
-async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); toast("Prompt copié."); }
+async function copyText(text, done = "Prompt copié.") {
+  try { await navigator.clipboard.writeText(text); toast(done); }
   catch {  // http://127.0.0.1 : presse-papiers parfois indisponible, repli manuel
     const area = el("textarea", { style: "position:fixed;opacity:0" }); area.value = text;
     document.body.append(area); area.select();
-    try { document.execCommand("copy"); toast("Prompt copié."); } catch { toast("Copie impossible."); }
+    try { document.execCommand("copy"); toast(done); } catch { toast("Copie impossible."); }
     area.remove();
   }
 }
 $("sceneClose").onclick = () => $("sceneDialog").close();
+
+// --- Envoi manuel ------------------------------------------------------------------------
+let manualCtx = null;
+async function openManual(series, ep) {
+  manualCtx = { series, ep };
+  $("manualHead").textContent = `Envoi manuel — épisode ${ep.number}`;
+  $("manualFolder").textContent = "Préparation des fichiers…";
+  $("manualTitle").value = ep.youtube_title || ""; $("manualDesc").value = ep.description || "";
+  $("manualLink").value = "";
+  $("manualDialog").showModal();
+  try {
+    const out = await api("/api/manual-export", { slug: series.slug, episode: ep.number });
+    $("manualTitle").value = out.title; $("manualDesc").value = out.description;
+    $("manualFolder").replaceChildren(
+      el("code", { style: "overflow-wrap:anywhere" }, out.shown),
+      el("div", {}, Object.values(out.files).join(" · ")));
+  } catch (err) { $("manualFolder").textContent = err.message; }
+}
+$("manualClose").onclick = () => $("manualDialog").close();
+$("copyTitle").onclick = () => copyText($("manualTitle").value, "Titre copié.");
+$("copyDesc").onclick = () => copyText($("manualDesc").value, "Description copiée.");
+$("manualDone").onclick = async () => {
+  const { series, ep } = manualCtx;
+  try {
+    await api("/api/mark-published", { slug: series.slug, episode: ep.number,
+                                       link: $("manualLink").value });
+    $("manualDialog").close(); toast(`Épisode ${ep.number} marqué comme publié.`); refresh();
+  } catch (err) { toast(err.message); }
+};
+$("epManual").onclick = async () => {
+  const { series, ep } = current;
+  try { await saveEpisode(true); } catch (err) { return toast(err.message); }  // titre modifié
+  closeEpisode(); openManual(series, ep);
+};
 
 // --- Fiche épisode --------------------------------------------------------------------
 let current = null;
@@ -843,6 +918,7 @@ function openEpisode(series, ep) {
   $("epApprove").hidden = published || ep.status === "valide";
   $("epReject").hidden = published || ep.status === "rejete";
   $("epPending").hidden = published || ep.status === "a_valider";
+  $("epManual").hidden = ep.status !== "valide";
   $("epNote").textContent = [ep.review_note ? `Motif : ${ep.review_note}` : "",
     ep.image_credits?.length ? `${ep.image_credits.length} illustration(s) créditée(s) dans la description.` : "",
     published ? "Épisode publié : modifiez-le directement sur YouTube." : ""].filter(Boolean).join(" ");
