@@ -68,6 +68,7 @@ def main(book_path: str | Path, config: dict | None = None,
     video.check_ffmpeg()
 
     book = reader.load_book(book_path)                          # 1. Lecture
+    check_has_text(book)
     texte = cleaner.clean(book.text)                            # 2. Nettoyage
     episodes = splitter.split(texte, config)                    # 3. Découpage
     if not episodes:
@@ -213,6 +214,21 @@ def main(book_path: str | Path, config: dict | None = None,
     print("Étape suivante — validation par le créateur de la chaîne :")
     print(f"    python main.py review {manifest_path}")
     return manifest_path
+
+
+def check_has_text(book: reader.Book) -> None:
+    """Un PDF scanné (pages en images) ne contient pas de texte : message clair."""
+    pages = book.text.count("\f") + 1
+    words = splitter.count_words(book.text)
+    if book.source.suffix.lower() == ".pdf" and words < 20 * pages:
+        raise SystemExit(
+            f"Ce PDF ne contient presque pas de texte ({words} mots pour {pages} pages) : "
+            "c'est sans doute un livre scanné, dont les pages sont des images. Passez-le "
+            "d'abord dans un outil de reconnaissance de texte (OCR), par exemple l'application "
+            "Google Drive (Ouvrir avec Google Docs) ou https://www.ilovepdf.com/fr/pdf-ocr, "
+            "puis importez le PDF obtenu.")
+    if words == 0:
+        raise SystemExit("Aucun texte exploitable dans ce livre.")
 
 
 def youtube_title(book_title: str, ep: splitter.Episode, config: dict) -> str:

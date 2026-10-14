@@ -196,3 +196,19 @@ def test_presentation_draft_is_proposed_not_saved(server, monkeypatch):
     assert "Une phrase de test" in seen["text"] and seen["book_title"] == "Livre"
     _, state = call(base, "/api/state")
     assert state["series"][0]["presentation"] == ""  # rien d'enregistré sans validation
+
+
+def test_failed_job_shows_its_error(server):
+    base, data, _ = server
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    for _ in range(3):
+        doc.new_page()
+    pdf = data / "scan.pdf"
+    doc.save(pdf)
+    call(base, "/api/books?name=scan.pdf", raw=pdf.read_bytes())
+    _, job = call(base, "/api/prompts", {"book": "scan.pdf", "options": {}})
+    state = wait_job(base)
+    assert state["job"]["status"] == "erreur"
+    assert "scanné" in state["job"]["error"] and "OCR" in state["job"]["error"]
+    assert state["jobs"][0]["error"] == state["job"]["error"]

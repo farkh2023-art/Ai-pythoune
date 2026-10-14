@@ -203,3 +203,13 @@ def test_manual_upload_export_and_mark_published(manifest, tmp_path):
                                   "https://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ"])
 def test_parse_youtube_links(link):
     assert uploader.parse_youtube_id(link) == "dQw4w9WgXcQ"
+
+
+def test_scanned_pdf_gives_a_clear_ocr_message(tmp_path, config):
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    for _ in range(5):  # pages sans texte, comme un livre scanné
+        doc.new_page().draw_rect((50, 50, 300, 400), color=(0, 0, 0), fill=(0.8, 0.8, 0.8))
+    doc.save(tmp_path / "scan.pdf")
+    with pytest.raises(SystemExit, match="scanné.*OCR"):
+        main.main(tmp_path / "scan.pdf", config)
