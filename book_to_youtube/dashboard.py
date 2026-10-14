@@ -365,6 +365,19 @@ def action_edit(body: dict) -> dict:
     return ep
 
 
+def action_manual_export(body: dict) -> dict:
+    """Envoi manuel : prépare les fichiers d'un épisode validé dans Téléchargements."""
+    folder = _series_dir(body["slug"])
+    root = Path(CONFIG.get("export_dir") or uploader.default_export_root(CONFIG))
+    return uploader.export_for_manual_upload(folder / "manifest.json", int(body["episode"]), root)
+
+
+def action_mark_published(body: dict) -> dict:
+    folder = _series_dir(body["slug"])
+    return uploader.mark_published(folder / "manifest.json", int(body["episode"]),
+                                   str(body.get("link", "")))
+
+
 def action_publish(body: dict) -> Job:
     folder = _series_dir(body["slug"])
     args = ["upload", str(folder / "manifest.json")]
@@ -495,6 +508,8 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/publish": lambda: asdict(action_publish(body)),
                 "/api/review": lambda: {"changed": action_review(body)},
                 "/api/edit": lambda: action_edit(body),
+                "/api/manual-export": lambda: action_manual_export(body),
+                "/api/mark-published": lambda: action_mark_published(body),
                 "/api/cancel": lambda: {"cancelled": RUNNER.cancel()},
             }
             if url.path not in routes:

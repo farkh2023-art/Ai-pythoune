@@ -251,6 +251,20 @@ Quota : l'API accorde 10 000 unités/jour par défaut et un envoi coûte environ
 1 600 unités — comptez ~6 vidéos par jour. La miniature personnalisée exige une
 chaîne vérifiée (sinon un simple avertissement est affiché).
 
+### Envoi manuel (application YouTube)
+
+Les vidéos envoyées par l'API depuis un projet Google non audité restent **privées**.
+Pour publier tout de suite, utilisez le bouton **Envoi manuel** d'un épisode validé
+dans le tableau de bord :
+
+1. la vidéo, la miniature, les sous-titres et un fichier `titre_description.txt` sont
+   copiés dans **Téléchargements/AI-pythoune/<livre>/episode_NNN/** ;
+2. copiez le titre et la description avec les boutons prévus ;
+3. dans l'application YouTube, *+ → Importer une vidéo*, choisissez `video.mp4`, puis
+   ajoutez dans YouTube Studio la miniature, les sous-titres et la playlist ;
+4. collez le lien de la vidéo publiée : l'épisode passe en **Publié** et n'est plus
+   proposé à l'envoi automatique.
+
 ## Configuration
 
 Toutes les valeurs par défaut sont dans `config.py` (dossiers, découpage,
