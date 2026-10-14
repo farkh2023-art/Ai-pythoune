@@ -774,6 +774,19 @@ function seriesCard(s) {
         el("div", { class: "row" },
           el("span", { class: "muted grow", style: "font-size:13px" },
              "Modifier la présentation ne décale pas les scènes ni vos images."),
+          el("button", { class: "small",
+            disabled: !STATE.env.anthropic_key || ui.drafting?.[s.slug] || null,
+            title: STATE.env.anthropic_key ? "Claude lit le livre et propose une présentation"
+                                           : "Clé API Anthropic requise (voir Configuration)",
+            onclick: async () => {
+              (ui.drafting ||= {})[s.slug] = true; render();
+              try {
+                const { text } = await api("/api/presentation-draft", { slug: s.slug });
+                (ui.presDraft ||= {})[s.slug] = text;
+                toast("Proposition prête : relisez-la, puis Enregistrer.");
+              } catch (err) { toast(err.message); }
+              ui.drafting[s.slug] = false; render();
+            } }, ui.drafting?.[s.slug] ? "Rédaction…" : "Proposer avec Claude"),
           el("button", { class: "small primary", onclick: async () => {
             try { await api("/api/presentation", { slug: s.slug, text: pres.value });
                   delete ui.presDraft?.[s.slug]; toast("Présentation enregistrée."); refresh(); }

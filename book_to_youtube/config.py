@@ -48,6 +48,8 @@ CONFIG = {
     # Générique : la présentation du livre (data/episodes/<livre>/presentation.txt)
     # est lue au début de chaque épisode ; False = seulement affichée.
     "read_presentation": True,
+    # Sans presentation.txt, Claude la rédige automatiquement (si une clé API est configurée).
+    "auto_presentation": True,
     "add_outro": True,
     "segment_max_chars": 220,  # taille max d'un segment (diapo / sous-titre)
 
