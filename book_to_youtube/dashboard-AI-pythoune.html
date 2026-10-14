@@ -505,7 +505,12 @@ function sendFile(file, urlFor, done) {
 
 // --- Tâche en cours -------------------------------------------------------------------
 function renderJob() {
-  const job = STATE.job;
+  let job = STATE.job;
+  if (ui.pinnedJob && job?.status !== "en_cours") {
+    job = STATE.jobs.find(j => j.id === ui.pinnedJob) || job;
+  } else {
+    ui.pinnedJob = null;
+  }
   $("jobCard").hidden = !job;
   if (!job) return;
   $("jobLabel").textContent = job.label;
@@ -532,7 +537,7 @@ function renderJob() {
   } else if (job.kind === "upload") {
     stage = "Envoi vers YouTube…";
   }
-  if (job.status === "erreur") stage = "Échec : ouvrez le journal pour voir l'erreur.";
+  if (job.status === "erreur") stage = `Échec : ${job.error || "voir le journal."}`;
   $("jobStage").textContent = stage;
   $("jobBar").style.width = `${pct}%`;
   if (ui.logJob !== job.id) { ui.logJob = job.id; ui.logOffset = 0; $("jobLog").textContent = ""; }
@@ -559,7 +564,8 @@ function appendLog(text) {
   const pre = $("jobLog");
   const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 30;
   // Les liens (autorisation Google, vidéos publiées) deviennent cliquables.
-  for (const part of text.split(/(https?:\/\/\S+)/)) {
+  // Un lien ne se termine pas par la ponctuation qui le suit dans la phrase.
+  for (const part of text.split(/(https?:\/\/\S*[^\s.,;:!?)»])/)) {
     pre.append(/^https?:\/\//.test(part)
       ? el("a", { href: part, target: "_blank", rel: "noopener" }, part)
       : document.createTextNode(part));
@@ -978,13 +984,24 @@ function renderHistory() {
   const box = $("history"); box.replaceChildren();
   if (!STATE.jobs.length) { box.append(el("div", { class: "empty" }, "Aucune tâche depuis le démarrage.")); return; }
   for (const job of STATE.jobs) {
-    box.append(el("div", { class: "book" },
+    box.append(el("div", { class: "book", style: "cursor:pointer", title: "Afficher le journal",
+                           onclick: () => showLog(job) },
       el("div", { class: "grow" }, el("div", { style: "font-weight:600" }, job.label),
         el("div", { class: "muted", style: "font-size:12.5px" },
           new Date(job.started * 1000).toLocaleString("fr-FR"), " · ",
-          fmtElapsed((job.ended || Date.now() / 1000) - job.started))),
+          fmtElapsed((job.ended || Date.now() / 1000) - job.started), " · journal"),
+        job.error ? el("div", { style: "color:var(--bad); font-size:13px; margin-top:4px;" +
+                                      " overflow-wrap:anywhere" }, job.error) : ""),
       el("span", { class: `badge b-${job.status}` }, JOB_STATUS[job.status])));
   }
+}
+
+// Journal d'une tâche passée : affiché dans le cadre « Tâche ».
+function showLog(job) {
+  ui.pinnedJob = job.id;
+  ui.logJob = job.id; ui.logOffset = 0; $("jobLog").textContent = "";
+  renderJob(); toggleLog(true);
+  $("jobCard").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 if (!TOKEN) $("noToken").hidden = false;

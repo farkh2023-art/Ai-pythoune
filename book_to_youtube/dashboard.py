@@ -74,10 +74,21 @@ class Job:
     started: float = field(default_factory=time.time)
     ended: float | None = None
     returncode: int | None = None
+    error: str | None = None  # dernière ligne utile du journal en cas d'échec
 
     @property
     def log_path(self) -> Path:
         return LOG_DIR / f"{self.id}.log"
+
+
+def _error_summary(log_path: Path) -> str:
+    """Message d'erreur lisible : dernière ligne non vide du journal (fin de la trace)."""
+    try:
+        lines = [ln.strip() for ln in log_path.read_text(encoding="utf-8", errors="replace")
+                 .splitlines() if ln.strip()]
+    except OSError:
+        return "Journal illisible."
+    return lines[-1][:600] if lines else "La tâche s'est arrêtée sans message."
 
 
 class JobRunner:
@@ -118,6 +129,9 @@ class JobRunner:
         job.ended = time.time()
         if job.status == "en_cours":
             job.status = "termine" if job.returncode == 0 else "erreur"
+        if job.status == "erreur":
+            job.error = _error_summary(job.log_path)
+
 
     def cancel(self) -> bool:
         job, process = self.current, self.process
