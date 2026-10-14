@@ -82,12 +82,10 @@ def split(text: str, config: dict) -> list[Episode]:
             episodes.extend((title, "\n\n".join(p)) for p in parts)
 
     episodes = _merge_small(episodes, int(config.get("min_words", 0)))
-    result = [
+    return [
         Episode(number=i, title=title or _default_title(text_, i, config), text=text_)
         for i, (title, text_) in enumerate(episodes, 1)
     ]
-    limit = config.get("max_episodes")
-    return result[:limit] if limit else result
 
 
 def _chapters(paragraphs: list[str]) -> list[tuple[str | None, list[str]]]:
@@ -99,10 +97,15 @@ def _chapters(paragraphs: list[str]) -> list[tuple[str | None, list[str]]]:
         if HEADING.match(para) and len(para) < 100:
             if body:
                 sections.append((title, body))
-            elif title is not None:
-                # Deux titres consécutifs (« Chapitre 1 » puis « Le départ »).
+            elif title is not None and _is_bare_label(title):
+                # « Chapitre 1 » puis son titre « Le départ » : on les réunit.
                 para = f"{title} — {para}"
+            # Sinon, un titre sans texte (sommaire sans points de suite…) est ignoré.
             title, body = para, []
+        elif (not body and title is not None and _is_bare_label(title)
+              and len(para) <= 80 and not re.search(r"[.!?…:;,]$", para)):
+            # Sous-titre sur sa propre ligne : « Chapitre premier » / « Sur la plage ».
+            title = f"{title} — {para}"
         else:
             body.append(para)
     if body:
@@ -116,6 +119,11 @@ def _chapters(paragraphs: list[str]) -> list[tuple[str | None, list[str]]]:
     elif sections and sections[0][0] is None and len(sections) > 1:
         sections[0] = ("Introduction", sections[0][1])
     return sections
+
+
+def _is_bare_label(title: str) -> bool:
+    """« Chapitre 3 », « Chapitre premier », « IV » : numéro sans titre propre."""
+    return len(title.split()) <= 2 and "—" not in title
 
 
 def _pack(paragraphs: list[str], target: int, strict: bool = False) -> list[list[str]]:

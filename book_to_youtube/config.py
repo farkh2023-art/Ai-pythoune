@@ -4,10 +4,12 @@ Toutes les valeurs peuvent être surchargées depuis la ligne de commande
 (voir ``main.py --help``) ou en modifiant ce dictionnaire.
 """
 
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
+# AIP_DATA_DIR permet d'utiliser un autre dossier de travail (tests, plusieurs projets…).
+DATA_DIR = Path(os.environ.get("AIP_DATA_DIR") or BASE_DIR / "data")
 
 CONFIG = {
     # --- Dossiers de travail -------------------------------------------
@@ -33,10 +35,15 @@ CONFIG = {
     "max_minutes": 20,
     # Un épisode plus court que min_words est fusionné avec le précédent.
     "min_words": 120,
-    "max_episodes": None,  # limiter le nombre d'épisodes générés (None = tous)
+    "max_episodes": None,  # ne générer que les N premiers épisodes (None = tous)
 
     # --- Narration ---------------------------------------------------------
-    "narration_mode": "fidele",  # lecture fidèle du texte
+    # "fidele" : lecture intégrale du texte
+    # "resume" : chaque épisode est résumé par Claude (API Anthropic) avant la lecture
+    "narration_mode": "fidele",
+    "summary_minutes": 5,  # durée visée d'un épisode résumé
+    "summary_model": "claude-opus-5-5",
+    "summary_effort": "medium",  # "low", "medium", "high"…
     "add_intro": True,
     "add_outro": True,
     "segment_max_chars": 220,  # taille max d'un segment (diapo / sous-titre)
@@ -55,7 +62,14 @@ CONFIG = {
     # --- Visuels -----------------------------------------------------------
     # "slides" : le texte narré s'affiche en grand sur chaque diapositive
     # "card"   : carte fixe (titre) + sous-titres incrustés en bas d'écran
+    # "illustre" : illustrations libres de droits (Wikimedia Commons) en plein écran,
+    #              une par scène, avec zoom lent et texte dans un bandeau
     "visual_style": "slides",
+    "scene_seconds": 40,  # durée visée d'une scène illustrée
+    "ken_burns": True,  # zoom / travelling lent sur les illustrations (plus lent à monter)
+    "zoom_supersampling": 1.5,  # 1 = plus rapide, 2 = mouvement plus fluide
+    "illustration_theme": None,  # recherche de secours, ex. "veld Afrique du Sud"
+    "illustration_hint": "",  # ajouté à chaque recherche, ex. "painting"
     "resolution": (1920, 1080),
     "background": ((22, 27, 45), (48, 36, 74)),  # dégradé haut -> bas
     "text_color": (245, 245, 245),
@@ -67,7 +81,9 @@ CONFIG = {
     "fps": 25,
     "video_codec": "libx264",
     "crf": 23,
-    "preset": "medium",
+    # Vitesse d'encodage x264 : "veryfast" est ~40 % plus rapide que "medium" pour une
+    # qualité visuelle quasi identique sur ce type de vidéo (images fixes).
+    "preset": "veryfast",
     "audio_bitrate": "160k",
 
     # --- Publication YouTube -----------------------------------------------

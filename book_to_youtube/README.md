@@ -13,6 +13,7 @@ créateur de la chaîne**.
 | 2. Nettoyage | `modules/cleaner.py` | en-têtes, pieds de page, numéros de page, césures, retours à la ligne → paragraphes |
 | 3. Découpage | `modules/splitter.py` | texte → épisodes (chapitre, durée cible ou nombre de mots) |
 | 4. Script | `modules/scripter.py` | épisode → segments à lire (intro, texte, outro) |
+| — Résumé (optionnel) | `modules/summarizer.py` | épisode → narration résumée par Claude |
 | 5. Voix off | `modules/tts.py` | segments → WAV + minutage exact de chaque segment |
 | 6. Visuels | `modules/visuals.py` | une image par segment + miniature 1280×720 |
 | — Sous-titres | `modules/subtitles.py` | minutage → fichier `.srt` |
@@ -33,6 +34,51 @@ pip install -r requirements.txt
 **ffmpeg** (avec ffprobe) doit être installé et dans le `PATH` :
 `apt install ffmpeg`, `brew install ffmpeg` ou `winget install ffmpeg`.
 
+### Android (Termux)
+
+```bash
+pkg update && pkg upgrade
+pkg install python ffmpeg git python-pillow libxml2 libxslt
+termux-setup-storage
+git clone https://github.com/farkh2023-art/Ai-pythoune.git && cd Ai-pythoune/book_to_youtube
+pip install pypdf edge-tts ebooklib python-docx google-api-python-client google-auth-oauthlib
+```
+
+PyMuPDF n'a pas de paquet précompilé pour Android : sans lui, les PDF sont lus
+avec **pypdf** (pur Python, plus lent mais équivalent pour ce projet). Conseils :
+`--resolution 1280x720` pour un montage plus rapide, `termux-wake-lock` pour ne
+pas être interrompu écran éteint, et `cp ~/storage/downloads/livre.pdf data/input/`
+pour récupérer un livre téléchargé.
+
+## Tableau de bord
+
+Tout le parcours (import du livre → génération → validation → publication) peut
+se piloter depuis un navigateur, y compris sur le téléphone :
+
+```bash
+python dashboard.py            # Termux : ajoutez --open pour ouvrir Chrome directement
+```
+
+Ouvrez l'adresse affichée (`http://127.0.0.1:8765/#token=…`). Le tableau de bord
+permet de :
+
+- **importer un livre** depuis le téléphone (plus besoin de `cp`) ;
+- **lancer la génération** avec un formulaire (découpage, voix, style, illustrations…) ;
+- **suivre la tâche en cours** : épisode, étape (voix, illustrations, montage…), journal
+  en direct, annulation ;
+- voir chaque série en **5 étapes** (import, découpage, génération, validation,
+  publication) et chaque épisode avec son statut (à générer, en cours, à valider,
+  validé, rejeté, publié) ;
+- **regarder un épisode**, corriger son titre et sa description, le valider ou le rejeter,
+  le régénérer avec les mêmes réglages ;
+- **publier** les épisodes validés (privé, non répertorié ou public), avec le lien
+  d'autorisation Google cliquable dans le journal au premier envoi.
+
+Le serveur n'écoute que sur l'appareil lui-même, et chaque requête doit porter le
+jeton secret de l'adresse affichée : ne la partagez pas. Une seule tâche tourne à la
+fois. Les commandes en ligne (`build`, `review`, `upload`…) restent utilisables en
+parallèle du tableau de bord.
+
 ## Utilisation
 
 ### 1. Générer les vidéos
@@ -49,9 +95,11 @@ Options utiles :
 | `--minutes 8` / `--words 1200` | taille cible d'un épisode |
 | `--max-minutes 20` | en mode chapitre, un chapitre plus long est découpé en parties égales |
 | `--lang fr\|en` | langue de la narration |
+| `--narration fidele\|resume` | lecture intégrale (défaut) ou résumé de chaque épisode — voir ci-dessous |
+| `--summary-minutes 5` | durée visée d'un épisode résumé |
 | `--tts edge\|gtts\|pyttsx3\|silent` | moteur de synthèse vocale (`silent` = test du montage sans voix) |
 | `--voice fr-FR-HenriNeural` `--rate +10%` | voix et débit (edge-tts : `edge-tts --list-voices`) |
-| `--style slides\|card` | texte narré en grand, ou carte de titre + sous-titres incrustés |
+| `--style slides\|card\|illustre` | texte narré en grand, carte de titre + sous-titres, ou illustrations en plein écran (voir ci-dessous) |
 | `--background image.jpg` | image de fond (floutée et assombrie automatiquement) |
 | `--resolution 1280x720` | résolution (défaut 1920×1080) |
 | `--episodes 1,3,5-7` / `--max-episodes 2` | ne générer qu'une partie de la série |
@@ -61,6 +109,52 @@ Les résultats sont dans `data/output/<titre-du-livre>/` :
 `episode_001.mp4`, `episode_001.srt`, `episode_001.jpg` et `manifest.json`.
 Les textes découpés sont dans `data/episodes/` pour relecture. La synthèse vocale
 est mise en cache : une génération interrompue reprend là où elle s'était arrêtée.
+
+### Style illustré (images libres de droits)
+
+Avec `--style illustre`, chaque épisode est découpé en scènes d'environ 40 s
+(`--scene-seconds`). Pour chaque scène, les mots les plus caractéristiques du
+texte servent à chercher une image sur **Wikimedia Commons**. Elle s'affiche en
+plein écran avec un zoom ou un travelling lent (`--no-zoom` pour des images
+fixes), et le texte lu apparaît dans un bandeau en bas.
+
+```bash
+python main.py build data/input/livre.pdf --style illustre --theme "veld Afrique du Sud" --image-hint painting
+```
+
+- Seules les images sous licence libre sont retenues (domaine public, CC0,
+  CC BY, CC BY-SA). Leurs crédits (titre, auteur, licence, lien) sont ajoutés
+  automatiquement à la description YouTube, comme l'exigent les licences CC BY.
+- `--theme` donne une recherche de secours quand une scène ne donne rien, et
+  `--image-hint` ajoute un mot à chaque recherche (« painting » donne souvent
+  des tableaux anciens, plus cohérents pour un roman).
+- La recherche se fait par mots-clés : les images illustrent l'ambiance (mer,
+  forêt, navire…), pas la scène exacte. Les descriptions de Commons étant
+  surtout en anglais, `--theme` et `--image-hint` en anglais donnent souvent de
+  meilleurs résultats.
+- **Regardez chaque épisode avant de le valider** : Commons n'a pas de filtre
+  de contenu, et une image peut être hors sujet ou inadaptée à votre chaîne.
+- Les images et les recherches sont gardées dans `data/images/commons/` :
+  relancer une génération ne retélécharge rien.
+
+### Mode résumé
+
+Avec `--narration resume`, chaque épisode est résumé par Claude (API Anthropic)
+avant la synthèse vocale : un chapitre de 30 minutes devient par exemple un
+épisode d'environ 5 minutes (`--summary-minutes`). Le résumé est fidèle au
+texte, rédigé pour être écouté (prose continue, sans titres ni listes), et la
+description YouTube précise qu'il a été rédigé avec l'aide d'une IA.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...        # clé API : https://console.anthropic.com/
+python main.py build data/input/mon_livre.epub --narration resume --summary-minutes 6
+```
+
+Les résumés sont enregistrés dans `data/episodes/<livre>/episode_001.resume.<id>.txt`.
+Vous pouvez les relire et les corriger : relancez ensuite la génération avec
+`--force` pour refaire la vidéo à partir de votre version (aucun nouvel appel à
+l'API tant que le texte du chapitre et les réglages ne changent pas). Modèle et
+niveau d'effort se règlent dans `config.py` (`summary_model`, `summary_effort`).
 
 ### 2. Validation par le créateur de la chaîne
 
@@ -114,8 +208,9 @@ python -m pytest -q tests
 ```
 
 Les tests couvrent la lecture des 4 formats, le nettoyage, le découpage, le
-script, un montage complet (moteur `silent`) et le circuit de validation /
-publication (client YouTube simulé).
+script, le mode résumé (client Claude simulé), les illustrations (API Commons
+simulée), un montage complet (moteur `silent`), le circuit de validation /
+publication (client YouTube simulé) et l'API du tableau de bord.
 
 ## Remarques
 
@@ -124,5 +219,5 @@ publication (client YouTube simulé).
 - La description indique que la narration est une voix de synthèse.
 - `edge-tts` et `gTTS` nécessitent une connexion Internet ; `pyttsx3` fonctionne
   hors-ligne (installer `espeak-ng` sous Linux).
-- La narration est une lecture fidèle du texte. Un mode « résumé » pourrait être
-  ajouté dans `scripter.py` (par exemple via un modèle de langage).
+- Le mode résumé est facturé à l'usage par l'API Anthropic (un appel par épisode,
+  dont le texte du chapitre en entrée).

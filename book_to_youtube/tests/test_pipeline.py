@@ -88,3 +88,55 @@ def test_interactive_review(manifest):
 
 def test_parse_numbers():
     assert main.parse_numbers("1,3,5-7") == [1, 3, 5, 6, 7]
+
+
+def test_build_in_summary_mode(tmp_path, config, monkeypatch):
+    monkeypatch.setattr("modules.summarizer._call_claude",
+                        lambda system, prompt, cfg, client=None: "Résumé court du chapitre.")
+    book = tmp_path / "livre.txt"
+    book.write_text("Chapitre 1\n\n" + " ".join(["Une phrase assez banale."] * 50), encoding="utf-8")
+    manifest = main.main(book, {**config, "narration_mode": "resume"})
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    assert ep["narration"] == "resume" and ep["words"] == 4
+    assert "IA" in ep["description"]
+
+
+def test_max_episodes_keeps_series_numbering(tmp_path, config):
+    body = " ".join(["Une phrase de test assez banale."] * 30)
+    book = tmp_path / "livre.txt"
+    book.write_text("\n\n".join(f"Chapitre {i}\n\n{body}" for i in (1, 2, 3)), encoding="utf-8")
+    manifest = main.main(book, {**config, "max_episodes": 1})
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    assert "1/3" in ep["description"]
+
+
+@pytest.mark.parametrize("ken_burns", [True, False])
+def test_build_illustrated_style(tmp_path, config, monkeypatch, ken_burns):
+    from test_illustrations import FakeCommons, page
+    from modules import illustrations
+
+    fake = FakeCommons({"phrase": [page(1, "Une phrase.jpg", index=1),
+                                   page(2, "Autre phrase.jpg", index=2)]})
+    real_client = illustrations.CommonsClient
+    monkeypatch.setattr(illustrations, "CommonsClient",
+                        lambda cache_dir, width=1920: real_client(cache_dir, width, fetch=fake))
+    body = " ".join(["Une phrase assez banale sur la plage."] * 60)
+    book = tmp_path / "livre.txt"
+    book.write_text(f"Chapitre 1\n\n{body}", encoding="utf-8")
+    manifest = main.main(book, {**config, "visual_style": "illustre", "scene_seconds": 10,
+                                "ken_burns": ken_burns})
+    (ep,) = uploader.load_manifest(manifest)["episodes"]
+    video = manifest.parent / ep["video"]
+    duration = float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(video)], capture_output=True, text=True, check=True).stdout)
+    assert abs(duration - ep["duration"]) < 0.3
+    assert len(ep["image_credits"]) == 2
+    assert "Wikimedia Commons" in ep["description"] and "Jean Photo" in ep["description"]
+
+
+def test_reusable_build_options():
+    argv = ["build", "--no-zoom", "data/input/x.pdf", "--style", "illustre", "--episodes", "3",
+            "--force", "--theme", "South Africa", "--max-episodes=2"]
+    assert main._reusable_options(argv, "data/input/x.pdf") == [
+        "--no-zoom", "--style", "illustre", "--theme", "South Africa"]
