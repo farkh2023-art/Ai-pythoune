@@ -55,7 +55,7 @@ BUILD_FLAGS = {
     "rate": "--rate", "style": "--style", "scene_seconds": "--scene-seconds",
     "theme": "--theme", "image_hint": "--image-hint", "resolution": "--resolution",
     "fps": "--fps", "episodes": "--episodes", "max_episodes": "--max-episodes",
-    "images": "--images", "image_style": "--image-style",
+    "images": "--images", "image_style": "--image-style", "scene_cut": "--scene-cut",
 }
 BUILD_SWITCHES = {"no_zoom": "--no-zoom", "force": "--force"}
 

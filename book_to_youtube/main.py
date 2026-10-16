@@ -21,7 +21,7 @@ from pathlib import Path
 
 from config import CONFIG
 from modules import (branding, cleaner, illustrations, ocr, prompts, reader, scripter,
-                     splitter, subtitles, summarizer, tts, uploader, video, visuals)
+                     splitter, subtitles, summarizer, titles, tts, uploader, video, visuals)
 
 DESCRIPTION_LABELS = {
     "fr": {"episode": "Épisode", "voice": "Narration : voix de synthèse.",
@@ -79,6 +79,11 @@ def main(book_path: str | Path, config: dict | None = None,
     episodes = splitter.split(texte, config)                    # 3. Découpage
     if not episodes:
         raise SystemExit("Aucun texte exploitable dans ce livre.")
+    # Titres « Partie N » remplacés par des titres proposés par Claude. Le titre
+    # d'origine reste utilisé pour le résumé (cache inchangé, mêmes scènes).
+    split_titles = {ep.number: ep.title for ep in episodes}
+    episodes = titles.name_episodes(episodes, config, book_title=book.title,
+                                    cache_dir=Path(config["episodes_dir"]) / slug, log=print)
 
     splitter.save(episodes, Path(config["episodes_dir"]) / slug)
     manifest_path = out_dir / "manifest.json"
@@ -119,9 +124,11 @@ def main(book_path: str | Path, config: dict | None = None,
         if config["narration_mode"] == "resume":
             progress("resume", ep.number, ep.title)
             original = ep
-            ep = summarizer.summarize_episode(ep, config, book_title=book.title,
-                                              author=book.author, total_episodes=total,
-                                              cache_dir=Path(config["episodes_dir"]) / slug)
+            ep = summarizer.summarize_episode(
+                dataclasses.replace(ep, title=split_titles[ep.number]), config,
+                book_title=book.title, author=book.author, total_episodes=total,
+                cache_dir=Path(config["episodes_dir"]) / slug)
+            ep = dataclasses.replace(ep, title=original.title)
             print(f"    résumé : {ep.word_count} mots "
                   f"({summarizer.summary_ratio(original, ep):.0%} de l'original)")
 
@@ -130,12 +137,20 @@ def main(book_path: str | Path, config: dict | None = None,
                                       channel_name=channel.narrated_name,
                                       presentation=presentation)
         scene_ranges = illustrations.plan_scene_ranges(script.segments, config)
+        scene_prompts = None
         user_dir = illustrations.episode_dir(config, slug, ep.number)
         if with_prompts:
             progress("prompts", ep.number, ep.title)
+            # Découpage visuel : une scène par « ce qu'on voit », prompts compris.
+            plan = prompts.visual_scene_plan(config, slug, ep, script.segments,
+                                             book_title=book.title, author=book.author,
+                                             bible=bible, log=print)
+            if plan is not None:
+                scene_ranges, scene_prompts = plan
             scenes_info = prompts.write_episode_prompts(
                 config, slug, ep, illustrations.scene_texts(script.segments, scene_ranges),
-                book_title=book.title, author=book.author, bible=bible, log=print)
+                book_title=book.title, author=book.author, bible=bible, log=print,
+                given=scene_prompts)
             mine = sum(1 for sc in scenes_info if illustrations.user_image(user_dir, sc["scene"]))
             print(f"    scènes : {len(scenes_info)} (vos images : {mine}) — {user_dir}")
         if prompts_only:
@@ -327,6 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--style", choices=["slides", "card", "illustre"],
                    help="style visuel (illustre : images Wikimedia Commons + zoom lent)")
     b.add_argument("--scene-seconds", type=float, help="durée d'une scène illustrée (s)")
+    b.add_argument("--scene-cut", choices=["auto", "claude", "duree"],
+                   help="découpage des scènes : visuel par Claude (auto si clé) ou par durée")
     b.add_argument("--no-zoom", action="store_true",
                    help="illustrations fixes, sans zoom lent (montage bien plus rapide)")
     b.add_argument("--fps", type=int, help="images par seconde (défaut 25 ; 20 = plus rapide)")
@@ -409,7 +426,8 @@ def cli(argv: list[str] | None = None) -> int:
             "language": args.lang, "narration_mode": args.narration,
             "summary_minutes": args.summary_minutes, "tts_engine": args.tts, "voice": args.voice,
             "tts_rate": args.rate, "visual_style": args.style,
-            "scene_seconds": args.scene_seconds, "illustration_theme": args.theme,
+            "scene_seconds": args.scene_seconds, "scene_cut": args.scene_cut,
+            "illustration_theme": args.theme,
             "illustration_hint": args.image_hint, "illustration_source": args.images,
             "image_style": args.image_style,
             "background_image": args.background, "max_episodes": args.max_episodes,

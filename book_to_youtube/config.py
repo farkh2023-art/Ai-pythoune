@@ -44,6 +44,9 @@ CONFIG = {
     "summary_minutes": 5,  # durée visée d'un épisode résumé
     "summary_model": "claude-opus-5-5",
     "summary_effort": "medium",  # "low", "medium", "high"…
+    # Titres des épisodes sans chapitre (« Partie N ») proposés par Claude :
+    # "auto" (si une clé est configurée) ou "off".
+    "episode_titles": "auto",
     # --- OCR des PDF scannés (pages en images) -------------------------------
     # "auto" : Claude si une clé est configurée, sinon Tesseract s'il est installé ;
     # "claude", "tesseract" ou "off".
@@ -76,7 +79,12 @@ CONFIG = {
     # "illustre" : illustrations libres de droits (Wikimedia Commons) en plein écran,
     #              une par scène, avec zoom lent et texte dans un bandeau
     "visual_style": "slides",
-    "scene_seconds": 40,  # durée visée d'une scène illustrée
+    "scene_seconds": 40,  # durée visée d'une scène illustrée (découpage par durée)
+    # Découpage des scènes : "auto" = visuel par Claude si une clé est configurée
+    # (nouvelle scène quand ce qu'on voit change), "claude" = forcé, "duree" = fixe.
+    "scene_cut": "auto",
+    "scene_min_seconds": 8,  # bornes visées du découpage visuel
+    "scene_max_seconds": 30,
     "ken_burns": True,  # zoom / travelling lent sur les illustrations (plus lent à monter)
     "zoom_supersampling": 1.5,  # 1 = plus rapide, 2 = mouvement plus fluide
     "illustration_theme": None,  # recherche de secours, ex. "veld Afrique du Sud"

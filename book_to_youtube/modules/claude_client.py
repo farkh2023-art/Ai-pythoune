@@ -30,7 +30,7 @@ def available() -> bool:
 
 
 def ask(system: str, prompt: str | list, config: dict, client=None, schema: dict | None = None,
-        what: str = "cette demande") -> str:
+        what: str = "cette demande", max_tokens: int = 16000) -> str:
     """Envoie une requête à Claude et renvoie le texte (JSON valide si `schema`).
 
     `prompt` : texte, ou liste de blocs de contenu (images + texte pour l'OCR).
@@ -40,7 +40,7 @@ def ask(system: str, prompt: str | list, config: dict, client=None, schema: dict
         output_config["format"] = {"type": "json_schema", "schema": schema}
     params = dict(
         model=config.get("summary_model", "claude-opus-5-5"),
-        max_tokens=16000,
+        max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": prompt}],
         thinking={"type": "adaptive"},
@@ -73,8 +73,8 @@ def ask(system: str, prompt: str | list, config: dict, client=None, schema: dict
 
 
 def ask_json(system: str, prompt: str | list, config: dict, schema: dict, client=None,
-             what: str = "cette demande") -> dict:
-    text = ask(system, prompt, config, client, schema, what)
+             what: str = "cette demande", max_tokens: int = 16000) -> dict:
+    text = ask(system, prompt, config, client, schema, what, max_tokens)
     try:
         return json.loads(text)
     except ValueError as err:
