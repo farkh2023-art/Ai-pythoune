@@ -97,6 +97,7 @@ class Scene:
     illustration: Illustration | None = None
     queries: list[str] = field(default_factory=list)
     number: int = 0
+    clip: Path | None = None  # animation fournie par le créateur (option « anime »)
 
     @property
     def duration(self) -> float:
@@ -288,6 +289,7 @@ def _plain(markup: str) -> str:
 # Wikimedia Commons.
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+CLIP_EXTENSIONS = (".mp4", ".mov", ".webm", ".mkv")
 
 
 def illustrations_root(config: dict) -> Path:
@@ -306,6 +308,22 @@ def user_image(folder: Path, scene_number: int) -> Path | None:
     return None
 
 
+def user_clip(folder: Path, scene_number: int) -> Path | None:
+    """Animation de la scène (option « anime ») : scene_01.mp4, .mov, .webm…"""
+    for ext in CLIP_EXTENSIONS:
+        path = folder / f"scene_{scene_number:02d}{ext}"
+        if path.is_file():
+            return path
+    return None
+
+
+def attach_clips(scenes: list[Scene], user_dir: Path) -> int:
+    """Option « anime » : chaque scène reçoit son clip s'il a été déposé."""
+    for scene in scenes:
+        scene.clip = user_clip(user_dir, scene.number)
+    return sum(1 for s in scenes if s.clip)
+
+
 # --- Attribution des images aux scènes ----------------------------------------------
 
 def illustrate(scenes: list[Scene], config: dict, cache_dir: str | Path,
@@ -320,14 +338,15 @@ def illustrate(scenes: list[Scene], config: dict, cache_dir: str | Path,
             if path is not None:
                 scene.illustration = Illustration(path, f"Scène {scene.number}", "", "", "",
                                                   personal=True)
-    if use_commons and any(s.illustration is None for s in scenes):
+    if use_commons and any(s.illustration is None and not s.clip for s in scenes):
         client = client or CommonsClient(cache_dir,
                                          width=int(config.get("resolution", (1920,))[0]))
         build_queries(scenes, config)
     used: set[int] = set()
     previous: Illustration | None = None
     for scene in scenes:
-        if scene.illustration is None and use_commons:
+        # Une scène animée (clip du créateur) n'a pas besoin d'image de Commons.
+        if scene.illustration is None and use_commons and not scene.clip:
             for query in scene.queries:
                 try:
                     results = client.search(query)

@@ -264,3 +264,32 @@ def test_delete_series_refused_while_a_job_runs(server, monkeypatch):
     assert call(base, "/api/delete-series", {"slug": "le-collier"})[0] == 409
     monkeypatch.undo()
     assert (data / "output" / "le-collier").is_dir()
+
+
+def test_scene_clip_upload_preview_and_delete(server):
+    base, data, _ = server
+    _fake_series(data, "jarvis", data / "input" / "j.pdf")
+    (data / "episodes" / "jarvis" / "index.json").write_text(json.dumps([{"number": 1,
+                                                                          "title": "Installation"}]))
+    folder = data / "illustrations" / "jarvis" / "episode_001"
+    folder.mkdir(parents=True)
+    (folder / "scenes.json").write_text(json.dumps({"episode": 1, "titre": "Installation", "scenes": [
+        {"scene": 1, "image": "scene_01.jpg", "extrait": "x", "prompt": "p"}]}))
+    (folder / "animations.json").write_text(json.dumps({"signature": "s",
+                                                        "prompts": ["Slow push-in."]}))
+    clip = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 3000
+    status, out = call(base, "/api/scene-clip?slug=jarvis&episode=1&scene=1&name=clip.MOV",
+                       raw=clip)
+    assert status == 200, out
+    (sc,) = out["scenes"]
+    assert sc["clip"] == "scene_01.mov" and sc["animation"] == "Slow push-in."
+    with urllib.request.urlopen(f"{base}{sc['clip_url']}&token=secret") as response:
+        assert response.headers["Content-Type"] == "video/quicktime" and response.read() == clip
+    assert call(base, "/api/scene-clip?slug=jarvis&episode=1&scene=1&name=x.gif",
+                raw=b"x")[0] == 400
+    _, state = call(base, "/api/state")
+    assert state["series"][0]["images"]["1"]["clips"] == 1
+    status, out = call(base, "/api/scene-clip-delete", {"slug": "jarvis", "episode": 1,
+                                                        "scene": 1})
+    assert status == 200 and out["scenes"][0]["clip"] is None
+    assert not list(folder.glob("scene_01.*"))

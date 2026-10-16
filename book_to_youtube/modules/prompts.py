@@ -31,7 +31,8 @@ import json
 from pathlib import Path
 
 from . import claude_client
-from .illustrations import episode_dir, illustrations_root, user_image
+from .illustrations import (CLIP_EXTENSIONS, episode_dir, illustrations_root, user_clip,
+                            user_image)
 from .splitter import count_words, split_sentences
 
 DEFAULT_STYLE = ("Illustration narrative détaillée, peinture numérique, lumière cinématographique, "
@@ -279,6 +280,81 @@ def write_episode_prompts(config: dict, slug: str, episode, texts: list[str], *,
     return scenes
 
 
+# --- Option « anime » : prompts d'animation ------------------------------------------
+#
+# Les scènes et leurs prompts d'images ne changent pas : chaque scène reçoit en plus
+# un prompt de mouvement pour un générateur image→vidéo (Kling, Runway, Veo, Hailuo,
+# Luma…). On crée d'abord l'image de la scène, puis on l'anime avec ce prompt, et on
+# dépose le clip sous le nom scene_NN.mp4 à côté de scene_NN.jpg.
+
+ANIM_FILE = "animations.json"
+DEFAULT_MOTION = ("Slow cinematic camera push-in, subtle natural motion (light flicker, "
+                  "drifting dust, gentle breathing of the subject), smooth and steady, "
+                  "5 seconds, no cuts, no text.")
+
+
+def template_motion(image_prompt: str) -> str:
+    return f"{DEFAULT_MOTION} Scene: {image_prompt}"
+
+
+def write_motion_prompts(config: dict, slug: str, episode, scenes: list[dict], *,
+                         book_title: str, bible: str = "", client=None,
+                         log=print) -> list[str]:
+    """Prompts d'animation (un par scène), écrits dans animations.json et
+    prompts_animation.txt, sauf s'ils correspondent déjà à ces scènes."""
+    folder = episode_dir(config, slug, episode.number)
+    folder.mkdir(parents=True, exist_ok=True)
+    seconds = float(config.get("anime_clip_seconds", 5))
+    signature = hashlib.sha1(json.dumps(
+        [[sc["prompt"] for sc in scenes], [sc.get("texte", sc["extrait"]) for sc in scenes],
+         seconds], ensure_ascii=False).encode()).hexdigest()[:12]
+    path = folder / ANIM_FILE
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        if cached.get("signature") == signature:
+            return cached["prompts"]
+    except (OSError, ValueError, KeyError):
+        pass
+
+    motions: list[str] = []
+    if scenes and (client is not None or use_claude(config)):
+        blocks = "\n\n".join(
+            f"<scene numero=\"{sc['scene']}\">\nTexte lu : {sc.get('texte', sc['extrait'])}\n"
+            f"Image : {sc['prompt']}\n</scene>" for sc in scenes)
+        system = ("Tu es réalisateur. Tu écris des prompts pour un générateur image→vidéo qui "
+                  "anime, une par une, les illustrations d'un livre raconté en vidéo.")
+        prompt = (
+            f"Livre : « {book_title} ». Épisode {episode.number} : {episode.title}.\n\n"
+            + (f"Bible visuelle :\n{bible}\n\n" if bible else "")
+            + f"Pour chacune des {len(scenes)} scènes, l'image fixe existe déjà (son prompt "
+            "est donné). Écris, en anglais, le prompt qui l'anime en un plan continu "
+            f"d'environ {seconds:.0f} secondes : mouvement de caméra (lent et fluide), "
+            "mouvement du sujet et de l'ambiance, en accord avec le texte lu pendant la scène. "
+            "20 à 50 mots. Garde le cadrage, le décor et l'apparence des personnages de "
+            "l'image : pas de nouveau personnage, pas de changement de lieu, pas de coupe. "
+            "Aucun texte à l'écran. Évite la violence explicite.\n\n" + blocks)
+        try:
+            data = claude_client.ask_json(system, prompt, config, _SCHEMA, client,
+                                          what=f"les animations de l'épisode {episode.number}")
+            motions = [str(m).strip() for m in data.get("prompts", [])][:len(scenes)]
+        except Exception as err:
+            log(f"    animations : Claude indisponible, prompts simples utilisés ({err})")
+    motions += [template_motion(sc["prompt"]) for sc in scenes[len(motions):]]
+
+    path.write_text(json.dumps({"signature": signature, "prompts": motions},
+                               ensure_ascii=False, indent=2), encoding="utf-8")
+    lines = [f"{book_title} — Épisode {episode.number} : {episode.title} — animations",
+             "1. Créez l'image de la scène (prompts.txt), 2. animez-la avec ce prompt dans "
+             "votre générateur image→vidéo, 3. déposez le clip ici : scene_01.mp4, "
+             "scene_02.mp4… (MP4, MOV ou WEBM, paysage 16:9).", ""]
+    for sc, motion in zip(scenes, motions):
+        lines += [f"Scène {sc['scene']:02d}  →  scene_{sc['scene']:02d}.mp4",
+                  f"Texte lu : « {sc.get('texte', sc['extrait'])} »",
+                  f"Animation : {motion}", ""]
+    (folder / "prompts_animation.txt").write_text("\n".join(lines), encoding="utf-8")
+    return motions
+
+
 def write_book_index(config: dict, slug: str, book_title: str) -> Path:
     """PROMPTS.md : tous les prompts du livre, avec l'état des images déposées."""
     root = illustrations_root(config) / slug
@@ -291,13 +367,24 @@ def write_book_index(config: dict, slug: str, book_title: str) -> Path:
         except (OSError, ValueError):
             continue
         lines += [f"## Épisode {data['episode']} — {data['titre']}  (`{folder.name}/`)", ""]
-        for sc in data["scenes"]:
+        motions = _motions(folder)
+        for k, sc in enumerate(data["scenes"]):
             done = "✅" if user_image(folder, sc["scene"]) else "⬜"
             lines += [f"{done} **scene_{sc['scene']:02d}** — {sc['prompt']}", ""]
+            if k < len(motions):
+                done = "✅" if user_clip(folder, sc["scene"]) else "⬜"
+                lines += [f"   {done} 🎬 *animation* — {motions[k]}", ""]
     path = root / "PROMPTS.md"
     root.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def _motions(folder: Path) -> list[str]:
+    try:
+        return json.loads((folder / ANIM_FILE).read_text(encoding="utf-8"))["prompts"]
+    except (OSError, ValueError, KeyError):
+        return []
 
 
 def scene_status(config: dict, slug: str, number: int) -> list[dict]:
@@ -307,9 +394,13 @@ def scene_status(config: dict, slug: str, number: int) -> list[dict]:
         scenes = json.loads((folder / "scenes.json").read_text(encoding="utf-8"))["scenes"]
     except (OSError, ValueError, KeyError):
         return []
-    for sc in scenes:
+    motions = _motions(folder)
+    for k, sc in enumerate(scenes):
         image = user_image(folder, sc["scene"])
         sc["fichier"] = image.name if image else None
+        clip = user_clip(folder, sc["scene"])
+        sc["clip"] = clip.name if clip else None
+        sc["animation"] = motions[k] if k < len(motions) else None
     return scenes
 
 
@@ -324,6 +415,23 @@ def save_scene_image(config: dict, slug: str, number: int, scene: int, data: byt
     path = folder / f"scene_{scene:02d}{'.jpg' if suffix == '.jpeg' else suffix}"
     path.write_bytes(data)
     return path
+
+
+def save_scene_clip(config: dict, slug: str, number: int, scene: int, suffix: str) -> Path:
+    """Chemin où enregistrer le clip d'une scène (l'ancien, quel que soit son format, est retiré)."""
+    suffix = suffix.lower()
+    if suffix not in CLIP_EXTENSIONS:
+        raise ValueError("Animation : formats acceptés MP4, MOV, WEBM ou MKV.")
+    folder = episode_dir(config, slug, number)
+    folder.mkdir(parents=True, exist_ok=True)
+    delete_scene_clip(config, slug, number, scene)
+    return folder / f"scene_{scene:02d}{suffix}"
+
+
+def delete_scene_clip(config: dict, slug: str, number: int, scene: int) -> None:
+    folder = episode_dir(config, slug, number)
+    while (clip := user_clip(folder, scene)) is not None:
+        clip.unlink()
 
 
 def delete_scene_image(config: dict, slug: str, number: int, scene: int) -> None:

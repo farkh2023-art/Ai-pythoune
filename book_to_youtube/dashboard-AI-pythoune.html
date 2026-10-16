@@ -140,6 +140,8 @@
                 color: var(--muted); font-size: 12px; text-align: center; }
   .scene .prompt { font-size: 13px; background: var(--panel-2); border-radius: 8px;
                    padding: 6px 8px; margin: 6px 0; max-height: 7.5em; overflow: auto; }
+  .scene .anim { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line);
+                 display: grid; gap: 6px; }
   .scene .excerpt { font-size: 12.5px; color: var(--muted); font-style: italic; }
   @media (max-width: 520px) { .scene { grid-template-columns: 1fr; }
                               .scene .img { width: 100%; height: auto; aspect-ratio: 16 / 9; } }
@@ -299,6 +301,17 @@
           </select></label>
         <label>Style des prompts d'images
           <input name="image_style" placeholder="ex. aquarelle, gravure ancienne…"></label>
+        <label>Visuels des scènes
+          <select name="visuels">
+            <option value="images">option-images : images fixes</option>
+            <option value="anime">option-anime : mes clips animés (image sinon)</option>
+          </select></label>
+        <label>Clip plus court que sa scène
+          <select name="anime_fill">
+            <option value="aller-retour">Aller-retour (sans saut)</option>
+            <option value="boucle">En boucle</option>
+            <option value="fige">Figé sur la dernière image</option>
+          </select></label>
         <label>Découpage des scènes
           <select name="scene_cut">
             <option value="auto">Visuel par Claude (une image par sujet)</option>
@@ -325,7 +338,9 @@
       <button id="sceneClose">Fermer</button>
     </div>
     <p class="muted" style="margin:0">Copiez le prompt dans votre générateur d'images, puis ajoutez
-      l'image obtenue (format paysage 16:9). Les scènes sans image utilisent Wikimedia Commons.</p>
+      l'image obtenue (format paysage 16:9). Les scènes sans image utilisent Wikimedia Commons.
+      Avec l'option-anime, animez ensuite cette image avec le prompt 🎬 dans votre générateur
+      image→vidéo et ajoutez le clip : il remplace l'image dans la vidéo.</p>
     <div class="scenes" id="sceneList"></div>
   </div>
 </dialog>
@@ -750,7 +765,7 @@ function seriesCard(s) {
     const actions = el("div", { class: "actions" });
     const im = s.images[r.number];
     if (im) actions.append(el("button", { class: "small", onclick: () => openScenes(s, r) },
-                              `Images ${im.mine}/${im.scenes}`));
+                              `Images ${im.mine}/${im.scenes}` + (im.clips ? ` · 🎬 ${im.clips}` : "")));
     if (r.ep) actions.append(el("button", { class: "small", onclick: () => openEpisode(s, r.ep) },
                                 r.status === "publie" ? "Voir" : "Voir / valider"));
     if (r.status === "valide") actions.append(el("button", { class: "small",
@@ -777,7 +792,7 @@ function seriesCard(s) {
     placeholder: "Introduction et description du livre, lues et affichées au début de chaque épisode (3 à 5 phrases)." });
   pres.value = ui.presDraft?.[s.slug] ?? s.presentation;
   pres.oninput = () => { (ui.presDraft ||= {})[s.slug] = pres.value; };
-  const totals = Object.values(s.images).reduce((a, x) => [a[0] + x.mine, a[1] + x.scenes], [0, 0]);
+  const totals = Object.values(s.images).reduce((a, x) => [a[0] + x.mine, a[1] + x.scenes, a[2] + (x.clips || 0)], [0, 0, 0]);
   const extras = el("div", { style: "display:grid; gap:10px; margin-bottom:10px" },
     el("details", { open: (ui.presOpen?.[s.slug] ?? !s.presentation) || null,
                     ontoggle: e => { (ui.presOpen ||= {})[s.slug] = e.target.open; } },
@@ -804,7 +819,8 @@ function seriesCard(s) {
                   delete ui.presDraft?.[s.slug]; toast("Présentation enregistrée."); refresh(); }
             catch (err) { toast(err.message); } } }, "Enregistrer")))),
     totals[1] ? el("div", { class: "row" },
-      el("span", { class: "grow" }, `Vos images : ${totals[0]} / ${totals[1]} scènes`),
+      el("span", { class: "grow" }, `Vos images : ${totals[0]} / ${totals[1]} scènes` +
+         (totals[2] ? ` · animations : ${totals[2]}` : "")),
       s.prompts_index ? el("a", { class: "btn small", target: "_blank", rel: "noopener",
         href: media(s.prompts_index) }, "Tous les prompts") : "") : "");
 
@@ -884,8 +900,26 @@ function renderScenes(scenes) {
       onchange: e => sendFile(e.target.files[0],
         f => `/api/scene-image?slug=${series.slug}&episode=${number}&scene=${sc.scene}&name=${encodeURIComponent(f.name)}`,
         data => { renderScenes(data.scenes); toast(`Image de la scène ${sc.scene} enregistrée.`); refresh(); }) });
+    const clipFile = el("input", { type: "file", accept: "video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv", hidden: true,
+      onchange: e => (e.target.files[0] && toast("Envoi du clip…"), sendFile(e.target.files[0],
+        f => `/api/scene-clip?slug=${series.slug}&episode=${number}&scene=${sc.scene}&name=${encodeURIComponent(f.name)}`,
+        data => { renderScenes(data.scenes); toast(`Animation de la scène ${sc.scene} enregistrée.`); refresh(); })) });
+    const anim = sc.animation ? el("div", { class: "anim" },
+      el("div", { class: "row" }, el("strong", { class: "grow" }, "🎬 Animation (option-anime)"),
+         el("span", { class: "muted", style: "font-size:12px" }, sc.clip || `scene_${String(sc.scene).padStart(2, "0")}.mp4`)),
+      el("div", { class: "prompt" }, sc.animation),
+      el("div", { class: "row" },
+        el("button", { class: "small", onclick: () => copyText(sc.animation, "Prompt d'animation copié.") }, "Copier l'animation"),
+        el("label", { class: "btn small primary" }, sc.clip_url ? "Remplacer le clip" : "Ajouter un clip", clipFile),
+        sc.clip_url ? el("button", { class: "small danger", onclick: async () => {
+          try { renderScenes((await api("/api/scene-clip-delete",
+                { slug: series.slug, episode: number, scene: sc.scene })).scenes); refresh(); }
+          catch (err) { toast(err.message); } } }, "Retirer le clip") : "")) : "";
     return el("div", { class: "scene" },
-      sc.url ? el("img", { class: "img", src: media(sc.url), alt: `Scène ${sc.scene}` })
+      sc.clip_url ? Object.assign(el("video", { class: "img", src: media(sc.clip_url), muted: true,
+                                  loop: true, autoplay: true, playsinline: true, preload: "metadata" }),
+                                  { muted: true })
+        : sc.url ? el("img", { class: "img", src: media(sc.url), alt: `Scène ${sc.scene}` })
              : el("div", { class: "img" }, "Pas d'image", el("br"), "(Commons)"),
       el("div", { style: "min-width:0" },
         el("div", { class: "row" }, el("strong", { class: "grow" }, `Scène ${sc.scene}`),
@@ -899,7 +933,8 @@ function renderScenes(scenes) {
           sc.url ? el("button", { class: "small danger", onclick: async () => {
             try { renderScenes((await api("/api/scene-image-delete",
                   { slug: series.slug, episode: number, scene: sc.scene })).scenes); refresh(); }
-            catch (err) { toast(err.message); } } }, "Retirer") : "")));
+            catch (err) { toast(err.message); } } }, "Retirer") : ""),
+        anim));
   }));
 }
 async function copyText(text, done = "Prompt copié.") {
