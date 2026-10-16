@@ -196,7 +196,7 @@ n'est jamais remplacée automatiquement (`auto_presentation: False` pour désact
    python main.py build data/input/livre.pdf --style illustre --prompts-only
    ```
 
-   Chaque épisode est découpé en scènes d'environ 40 s. Le dossier
+   Chaque épisode est découpé en scènes (voir « Découpage visuel » ci-dessous). Le dossier
    `data/illustrations/<livre>/episode_001/` reçoit un `prompts.txt` (un prompt par
    scène) et `PROMPTS.md` les rassemble tous. Avec une clé API Anthropic, Claude
    rédige les prompts en anglais, d'après une « bible visuelle » du livre (époque,
@@ -217,6 +217,17 @@ n'ont pas de crédit dans la description. Les scènes sont calculées sur le tex
 modifier la présentation ou le générique ne décale pas vos images. En revanche, changer
 le découpage (`--split`, `--minutes`, `--scene-seconds`, `--narration`) change les
 scènes : les prompts sont alors réécrits.
+
+**Découpage visuel par Claude.** Avec une clé API, Claude découpe chaque épisode
+selon ce qu'on doit voir : une nouvelle scène commence quand le lieu, le personnage,
+l'objet ou l'étape change (de 8 à 30 s environ, `scene_min_seconds` /
+`scene_max_seconds` dans `config.py`), et chaque prompt illustre exactement les phrases
+lues pendant son image (`Texte lu` dans `prompts.txt`). Sans clé, les scènes durent
+environ 40 s (`--scene-seconds`). Le découpage est gardé dans `decoupage.json` : il ne
+bouge plus ensuite. Un épisode dont vous avez déjà déposé des images garde son ancien
+découpage ; `--scene-cut claude` (ou « Visuel par Claude, même si des images existent »
+dans le tableau de bord) le redécoupe, et il faut alors refaire ses images.
+`--scene-cut duree` revient au découpage fixe.
 
 ### Style illustré (images libres de droits)
 

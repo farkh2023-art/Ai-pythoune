@@ -299,6 +299,12 @@
           </select></label>
         <label>Style des prompts d'images
           <input name="image_style" placeholder="ex. aquarelle, gravure ancienne…"></label>
+        <label>Découpage des scènes
+          <select name="scene_cut">
+            <option value="auto">Visuel par Claude (une image par sujet)</option>
+            <option value="claude">Visuel par Claude, même si des images existent</option>
+            <option value="duree">Par durée (~40 s par image)</option>
+          </select></label>
       </div>
       <label class="check"><input type="checkbox" name="no_zoom"> Images fixes, sans zoom
         (montage ~4× plus rapide)</label>
@@ -865,7 +871,7 @@ function renderScenes(scenes) {
       el("div", { style: "min-width:0" },
         el("div", { class: "row" }, el("strong", { class: "grow" }, `Scène ${sc.scene}`),
            el("span", { class: "muted", style: "font-size:12px" }, sc.fichier || `scene_${String(sc.scene).padStart(2, "0")}.jpg`)),
-        el("div", { class: "excerpt" }, `« ${sc.extrait} »`),
+        el("div", { class: "excerpt" }, `« ${sc.texte || sc.extrait} »`),
         el("div", { class: "prompt" }, sc.prompt),
         el("div", { class: "row" },
           el("button", { class: "small", onclick: () => copyText(sc.prompt) }, "Copier le prompt"),

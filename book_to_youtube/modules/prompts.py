@@ -15,6 +15,13 @@ Avec une clé API Anthropic, Claude rédige les prompts (en anglais, la langue q
 les générateurs comprennent le mieux) à partir d'une « bible visuelle » du livre
 (époque, lieux, apparence des personnages) pour garder des images cohérentes.
 Sans clé, un prompt simple est construit à partir du texte de la scène.
+
+Découpage visuel : avec une clé, Claude découpe aussi l'épisode en scènes. Au
+lieu d'une image toutes les ~40 secondes, une nouvelle scène commence quand ce
+qu'on doit voir change (lieu, personnage, objet, étape…), et chaque prompt
+illustre exactement les phrases lues pendant son image. Le découpage est gardé
+dans ``decoupage.json`` (dossier de l'épisode) : les scènes ne bougent plus
+ensuite, et vos images ``scene_NN`` restent à leur place.
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ from pathlib import Path
 
 from . import claude_client
 from .illustrations import episode_dir, illustrations_root, user_image
-from .splitter import split_sentences
+from .splitter import count_words, split_sentences
 
 DEFAULT_STYLE = ("Illustration narrative détaillée, peinture numérique, lumière cinématographique, "
                  "couleurs riches")
@@ -71,6 +78,117 @@ def visual_bible(config: dict, slug: str, book_title: str, author: str | None, t
     return bible
 
 
+# --- Découpage visuel des scènes (Claude) -------------------------------------------
+
+_CUT_SCHEMA = {
+    "type": "object",
+    "properties": {"scenes": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"first": {"type": "integer"}, "prompt": {"type": "string"}},
+        "required": ["first", "prompt"],
+        "additionalProperties": False,
+    }}},
+    "required": ["scenes"],
+    "additionalProperties": False,
+}
+CUT_FILE = "decoupage.json"
+
+
+def visual_scene_plan(config: dict, slug: str, episode, segments: list, *, book_title: str,
+                      author: str | None = None, bible: str = "", client=None,
+                      log=print) -> tuple[list[tuple[int, int]], list[str]] | None:
+    """Scènes découpées par Claude selon ce qu'on doit voir, avec leur prompt.
+
+    Retourne (plages de segments, prompts), ou None pour garder le découpage par
+    durée : mode « duree », pas de clé, réponse inutilisable, ou épisode dont
+    les images ont déjà été déposées sur l'ancien découpage (mode « auto »).
+    """
+    mode = config.get("scene_cut", "auto")
+    body = [i for i, seg in enumerate(segments) if seg.kind == "body"]
+    if mode == "duree" or not body:
+        return None
+    wpm = config.get("words_per_minute", 150)
+    pause = float(config.get("pause_between_segments", 0.25))
+    seconds = [count_words(segments[i].text) / wpm * 60 + pause for i in body]
+    low = float(config.get("scene_min_seconds", 8))
+    high = float(config.get("scene_max_seconds", 30))
+    style = config.get("image_style") or DEFAULT_STYLE
+    signature = hashlib.sha1(json.dumps(
+        [[segments[i].text for i in body], style, low, high], ensure_ascii=False).encode()
+    ).hexdigest()[:12]
+    folder = episode_dir(config, slug, episode.number)
+    path = folder / CUT_FILE
+
+    def absolute(starts: list[int]) -> list[tuple[int, int]]:
+        ends = [s - 1 for s in starts[1:]] + [len(body) - 1]
+        return [(body[a], body[b]) for a, b in zip(starts, ends)]
+
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        if cached.get("signature") == signature:
+            return absolute(cached["debuts"]), cached["prompts"]
+    except (OSError, ValueError, KeyError):
+        pass
+    if not (mode == "claude" or (client is not None or use_claude(config))):
+        return None
+    if mode == "auto" and not path.exists() and any(
+            user_image(folder, n) for n in range(1, 100)):
+        log(f"    scènes : vos images de l'épisode {episode.number} suivent l'ancien découpage, "
+            "conservé (--scene-cut claude pour redécouper)")
+        return None
+
+    lines = "\n".join(f"[{k}] ({sec:.0f} s) {segments[i].text}"
+                      for k, (i, sec) in enumerate(zip(body, seconds), 1))
+    system = ("Tu es directeur artistique et monteur. Tu découpes la narration d'un livre en "
+              "scènes visuelles et tu écris le prompt de l'image de chaque scène.")
+    prompt = (
+        f"Livre : « {book_title} »{f', de {author}' if author else ''}. "
+        f"Épisode {episode.number} : {episode.title}.\n"
+        f"Style imposé pour toutes les images : {style}.\n\n"
+        + (f"Bible visuelle (à respecter pour les personnages et les lieux) :\n{bible}\n\n"
+           if bible else "")
+        + "Voici la narration, phrase par phrase, avec la durée de lecture estimée de "
+        "chacune. Une scène = une image fixe affichée pendant que ses phrases sont lues.\n\n"
+        "Découpage :\n"
+        "- Commence une nouvelle scène dès que ce que le spectateur devrait voir change : "
+        "lieu, personnage, objet, action, écran ou étape différents.\n"
+        "- Regroupe les phrases consécutives qui montrent la même chose.\n"
+        f"- Durée d'une scène : idéalement entre {low:.0f} et {high:.0f} secondes. Ne descends "
+        f"sous {low:.0f} s que pour un changement très marqué, ne dépasse pas {high:.0f} s.\n"
+        "- Les scènes se suivent sans trou : la première commence à la phrase 1.\n\n"
+        "Pour chaque scène, donne le numéro de sa première phrase (« first ») et un prompt "
+        "en anglais de 40 à 80 mots (« prompt ») qui montre précisément ce que disent ses "
+        "phrases : sujet principal, décor, éclairage, cadrage, en reprenant le style imposé "
+        "et la bible. Une seule image fixe au format paysage 16:9. Aucun texte, lettrage ni "
+        "logo dans l'image. Évite la violence explicite.\n\n"
+        f"<narration>\n{lines}\n</narration>")
+    try:
+        data = claude_client.ask_json(system, prompt, config, _CUT_SCHEMA, client,
+                                      what=f"le découpage de l'épisode {episode.number}",
+                                      max_tokens=32000)
+        by_start: dict[int, str] = {}
+        for scene in data.get("scenes", []):
+            first, text = int(scene["first"]), str(scene["prompt"]).strip()
+            if 1 <= first <= len(body) and text and first not in by_start:
+                by_start[first] = text
+        if not by_start:
+            raise claude_client.ClaudeError("aucune scène reçue")
+    except Exception as err:
+        log(f"    scènes : découpage par Claude impossible, découpage par durée ({err})")
+        return None
+    starts = sorted(by_start)
+    prompts_ = [by_start[s] for s in starts]
+    starts = [0] + [s - 1 for s in starts[1:]]  # la première scène commence à la phrase 1
+    folder.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"signature": signature, "debuts": starts, "prompts": prompts_},
+                               ensure_ascii=False, indent=2), encoding="utf-8")
+    durations = [sum(seconds[a:b + 1]) for a, b in
+                 zip(starts, [s - 1 for s in starts[1:]] + [len(body) - 1])]
+    log(f"    scènes : découpage visuel par Claude, {len(starts)} scène(s) de "
+        f"{min(durations):.0f} à {max(durations):.0f} s")
+    return absolute(starts), prompts_
+
+
 # --- Prompts par épisode -----------------------------------------------------------
 
 def _excerpt(text: str, limit: int = 350) -> str:
@@ -112,8 +230,11 @@ def _claude_prompts(texts: list[str], config: dict, book_title: str, author: str
 
 def write_episode_prompts(config: dict, slug: str, episode, texts: list[str], *,
                           book_title: str, author: str | None = None, bible: str = "",
-                          client=None, log=print) -> list[dict]:
-    """Écrit prompts.txt et scenes.json (sauf s'ils correspondent déjà à ces scènes)."""
+                          client=None, log=print, given: list[str] | None = None) -> list[dict]:
+    """Écrit prompts.txt et scenes.json (sauf s'ils correspondent déjà à ces scènes).
+
+    `given` : prompts déjà écrits (découpage visuel par Claude), un par scène.
+    """
     folder = episode_dir(config, slug, episode.number)
     folder.mkdir(parents=True, exist_ok=True)
     signature = hashlib.sha1(json.dumps(
@@ -129,7 +250,9 @@ def write_episode_prompts(config: dict, slug: str, episode, texts: list[str], *,
 
     prompts: list[str] = []
     author_label = "modele"
-    if texts and use_claude(config):
+    if given is not None and len(given) == len(texts):
+        prompts, author_label = list(given), "claude"
+    elif texts and use_claude(config):
         try:
             prompts = _claude_prompts(texts, config, book_title, author, episode, bible, client)
             author_label = "claude"
@@ -140,6 +263,7 @@ def write_episode_prompts(config: dict, slug: str, episode, texts: list[str], *,
         prompts += [template_prompt(t, config) for t in texts[len(prompts):]]
 
     scenes = [{"scene": i, "image": f"scene_{i:02d}.jpg", "extrait": _excerpt(t, 220),
+               "texte": t,
                "prompt": p} for i, (t, p) in enumerate(zip(texts, prompts), 1)]
     index_path.write_text(json.dumps({"signature": signature, "auteur": author_label,
                                       "episode": episode.number, "titre": episode.title,
@@ -150,7 +274,7 @@ def write_episode_prompts(config: dict, slug: str, episode, texts: list[str], *,
              "(JPG, PNG ou WEBP, format paysage 16:9).", ""]
     for sc in scenes:
         lines += [f"Scène {sc['scene']:02d}  →  scene_{sc['scene']:02d}.jpg",
-                  f"Texte : « {sc['extrait']} »", f"Prompt : {sc['prompt']}", ""]
+                  f"Texte lu : « {sc['texte']} »", f"Prompt : {sc['prompt']}", ""]
     (folder / "prompts.txt").write_text("\n".join(lines), encoding="utf-8")
     return scenes
 
