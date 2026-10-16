@@ -308,7 +308,12 @@ python main.py build data/input/sommeil-fr.curiosite.json --split single --style
   Titre YouTube avec `#Shorts`, hashtags dans la description, série distincte « …-short ».
   Les prompts d'images demandent des images **portrait 9:16**.
 - `--split single` : **une vidéo longue 16:9** qui enchaîne les 4 questions, avec le
-  générique de la chaîne.
+  générique de la chaîne (série distincte « …-longue »).
+
+**Rien n'est écrasé.** Chaque variante a son propre dossier, à côté de la série d'origine :
+« …-ar » (autre langue), « …-longue » (une seule vidéo), « …-short » (Shorts). Redemander
+des questions sur un mot-clé déjà traité crée un nouveau fichier (`…-2.curiosite.json`)
+sans toucher à celui que vous avez déjà relu.
 - Version arabe : `--lang ar` sur le même fichier (Claude traduit questions et scripts), ou
   `curiosite "النوم" --lang ar` pour des questions écrites directement en arabe.
 

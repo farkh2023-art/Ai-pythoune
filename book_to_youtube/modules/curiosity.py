@@ -119,7 +119,14 @@ def file_name(keyword: str, lang: str) -> str:
 
 
 def save(data: dict, folder: str | Path) -> Path:
+    """Nouveau fichier ; un fichier existant (déjà relu, déjà publié) n'est jamais écrasé :
+    « sommeil-fr-2.curiosite.json », « -3 »…"""
     path = Path(folder) / file_name(data["mot_cle"], data.get("langue", "fr"))
+    n = 2
+    while path.exists():
+        path = path.with_name(file_name(data["mot_cle"], data.get("langue", "fr"))
+                              .replace(SUFFIX, f"-{n}{SUFFIX}"))
+        n += 1
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return path

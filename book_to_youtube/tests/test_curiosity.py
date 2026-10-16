@@ -46,6 +46,9 @@ def test_claude_writes_four_angles(tmp_path):
     assert "environ 100 mots" in prompt and "Exactitude" in prompt and "légende" in prompt
     path = curiosity.save(data, tmp_path)
     assert path.name == "sommeil-ar.curiosite.json" and curiosity.load(path) == data
+    # Un deuxième tirage sur le même mot-clé n'écrase pas le premier (déjà relu).
+    again = curiosity.save({**data, "titre": "autre"}, tmp_path)
+    assert again.name == "sommeil-ar-2.curiosite.json" and curiosity.load(path) == data
 
 
 def test_too_few_questions_is_an_error():
@@ -121,7 +124,7 @@ def test_build_four_shorts_and_one_long_video(tmp_path):
     assert "Bienvenue" not in srt and "Abonnez-vous" in srt  # pas de générique en Short
 
     long_ = main.main(path, {**base, "split_mode": "single", "resolution": (320, 180)})
-    assert not long_.parent.name.endswith("-short")
+    assert long_.parent.name.endswith("-longue")  # n'écrase ni les Shorts ni une autre série
     (ep,) = json.loads(long_.read_text())["episodes"]
     assert ep["youtube_title"] == "Le sommeil en 4 questions"
     assert "Épisode 1" not in (long_.parent / ep["subtitles"]).read_text(encoding="utf-8")

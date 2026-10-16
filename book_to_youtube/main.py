@@ -31,14 +31,17 @@ def slugify(text: str, default: str = "livre") -> str:
 
 
 def series_slug(title: str, source: str | Path, lang: str, book_lang: str,
-                short: bool = False) -> str:
+                short: bool = False, single: bool = False) -> str:
     """Dossier de la série : titre du livre, plus la langue de la vidéo si elle diffère.
 
+    Chaque variante a son propre dossier et n'écrase jamais l'originale : « -ar »
+    (autre langue), « -longue » (tout en une vidéo), « -short » (Shorts 9:16).
     Un titre sans lettres latines (arabe…) prend le nom du fichier, sinon une empreinte.
     """
     base = (slugify(title, "") or slugify(Path(source).stem, "")
             or "livre-" + hashlib.sha1(title.encode()).hexdigest()[:6])
     base = base if lang == book_lang else f"{base}-{lang}"
+    base = f"{base}-longue" if single else base
     return f"{base}-short" if short else base
 
 
@@ -136,7 +139,8 @@ def main(book_path: str | Path, config: dict | None = None,
     source_lang, translated = book_language(texte, config)
     series = series_slug(book.title, book.source, config["language"],
                          source_lang if translated else config["language"],
-                         short=config.get("video_format") == "short")
+                         short=config.get("video_format") == "short",
+                         single=config.get("split_mode") == "single")
     if series != slug:
         _drop_progress(out_dir)
         slug, out_dir = series, Path(config["output_dir"]) / series
