@@ -212,3 +212,55 @@ def test_failed_job_shows_its_error(server):
     assert state["job"]["status"] == "erreur"
     assert "scanné" in state["job"]["error"] and "OCR" in state["job"]["error"]
     assert state["jobs"][0]["error"] == state["job"]["error"]
+
+
+def _fake_series(data, slug, source):
+    for name in ("output", "episodes", "audio", "images", "illustrations"):
+        (data / name / slug).mkdir(parents=True, exist_ok=True)
+        (data / name / slug / "f.txt").write_text("x")
+    manifest = {"book": {"title": "Le Collier", "source": str(source)}, "episodes": []}
+    (data / "output" / slug / "manifest.json").write_text(json.dumps(manifest))
+
+
+def test_delete_series(server):
+    base, data, dashboard = server
+    book = data / "input" / "collier.pdf"
+    book.write_bytes(b"%PDF")
+    _fake_series(data, "le-collier", book)
+    _fake_series(data, "autre", data / "input" / "autre.pdf")
+
+    assert call(base, "/api/delete-series", {"slug": "../input"})[0] == 400
+    assert call(base, "/api/delete-series", {"slug": "inconnue"})[0] == 400
+    status, out = call(base, "/api/delete-series", {"slug": "le-collier"})
+    assert status == 200 and out["book"] is None and len(out["folders"]) == 5
+    assert not any((data / name / "le-collier").exists()
+                   for name in ("output", "episodes", "audio", "images", "illustrations"))
+    assert book.exists()  # livre gardé par défaut
+    assert (data / "output" / "autre").is_dir()  # les autres séries ne bougent pas
+    _, state = call(base, "/api/state")
+    assert [s["slug"] for s in state["series"]] == ["autre"]
+
+
+def test_delete_series_with_book_only_inside_input(server, tmp_path_factory):
+    base, data, _ = server
+    book = data / "input" / "collier.pdf"
+    book.write_bytes(b"%PDF")
+    _fake_series(data, "le-collier", book)
+    assert call(base, "/api/delete-series",
+                {"slug": "le-collier", "delete_book": True})[1]["book"] == "collier.pdf"
+    assert not book.exists()
+    # Un livre hors de data/input n'est jamais effacé.
+    outside = tmp_path_factory.mktemp("ailleurs") / "livre.pdf"
+    outside.write_bytes(b"%PDF")
+    _fake_series(data, "ext", outside)
+    assert call(base, "/api/delete-series", {"slug": "ext", "delete_book": True})[1]["book"] is None
+    assert outside.exists()
+
+
+def test_delete_series_refused_while_a_job_runs(server, monkeypatch):
+    base, data, dashboard = server
+    _fake_series(data, "le-collier", data / "input" / "x.pdf")
+    monkeypatch.setattr(type(dashboard.RUNNER), "current", property(lambda self: object()))
+    assert call(base, "/api/delete-series", {"slug": "le-collier"})[0] == 409
+    monkeypatch.undo()
+    assert (data / "output" / "le-collier").is_dir()
