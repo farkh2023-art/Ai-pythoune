@@ -1,0 +1,24 @@
+{
+  "mot_cle": "sommeil",
+  "domaine": "santé et corps humain",
+  "langue": "fr",
+  "titre": "Le sommeil : 4 questions surprenantes",
+  "questions": [
+    {"angle": "pourquoi", "question": "Savez-vous pourquoi on sursaute parfois juste avant de s'endormir ?",
+     "script": "Savez-vous pourquoi on sursaute parfois juste avant de s'endormir ? Ce sursaut a un nom : la secousse hypnique. Au moment où l'on bascule dans le sommeil, les muscles se relâchent d'un coup. Selon une hypothèse répandue, le cerveau interprète ce relâchement brutal comme une chute, et déclenche une contraction réflexe pour nous rattraper. Cela arrive à la grande majorité des gens, plus souvent en cas de fatigue, de stress ou après un café tardif. C'est sans danger. Et vous, ça vous arrive souvent ? Dites-le en commentaire.",
+     "titre_youtube": "Pourquoi sursaute-t-on juste avant de s'endormir ?", "hashtags": ["sommeil", "cerveau", "science"],
+     "a_verifier": "L'explication par la « chute » reste une hypothèse : vérifier la formulation (Inserm, Société française de recherche et médecine du sommeil)."},
+    {"angle": "saviez-vous", "question": "Saviez-vous qu'on passe environ un tiers de sa vie à dormir ?",
+     "script": "Saviez-vous qu'on passe environ un tiers de sa vie à dormir ? Avec huit heures par nuit, cela représente plus de vingt-six ans sur une vie de quatre-vingts ans. Ce temps n'est pas perdu : pendant le sommeil, le cerveau trie et consolide ce que nous avons appris dans la journée, et le corps se répare. Un nouveau-né, lui, dort jusqu'à seize ou dix-sept heures par jour. Combien d'heures dormez-vous chaque nuit ? Répondez en commentaire.",
+     "titre_youtube": "On passe un tiers de sa vie à dormir : vraiment ?", "hashtags": ["sommeil", "corpshumain", "lesaviezvous"],
+     "a_verifier": "Vérifier les durées de sommeil du nourrisson (Inserm, Assurance maladie)."},
+    {"angle": "comment", "question": "Savez-vous comment le cerveau fait le ménage pendant le sommeil ?",
+     "script": "Savez-vous comment le cerveau fait le ménage pendant le sommeil ? Il utilise un réseau découvert en 2012 : le système glymphatique. Pendant le sommeil profond, le liquide céphalorachidien circule davantage entre les cellules du cerveau et emporte une partie des déchets accumulés pendant la journée, dont la protéine bêta-amyloïde. Chez la souris, ce nettoyage est bien plus actif pendant le sommeil qu'à l'éveil. Une raison de plus de bien dormir ! Saviez-vous que votre cerveau faisait le ménage la nuit ?",
+     "titre_youtube": "Comment le cerveau se nettoie-t-il pendant le sommeil ?", "hashtags": ["cerveau", "sommeil", "neurosciences"],
+     "a_verifier": "Les résultats principaux viennent d'études sur la souris (Xie et al., Science, 2013) : garder cette précision."},
+    {"angle": "quoi", "question": "Savez-vous ce qu'est la paralysie du sommeil ?",
+     "script": "Savez-vous ce qu'est la paralysie du sommeil ? C'est le fait de se réveiller sans pouvoir bouger pendant quelques secondes, parfois une minute. Pendant le sommeil paradoxal, celui des rêves, le corps est naturellement paralysé pour ne pas mimer nos rêves. Dans la paralysie du sommeil, la conscience se réveille avant que cette paralysie ne se lève. Elle s'accompagne parfois d'hallucinations très impressionnantes, mais elle est sans danger et s'arrête d'elle-même. Vous l'avez déjà vécue ? Racontez en commentaire.",
+     "titre_youtube": "La paralysie du sommeil : qu'est-ce que c'est ?", "hashtags": ["sommeil", "paralysiedusommeil", "science"],
+     "a_verifier": "Rester informatif, sans conseil médical ; durée typique : de quelques secondes à quelques minutes."}
+  ]
+}

@@ -21,8 +21,8 @@ import unicodedata
 from pathlib import Path
 
 from config import CONFIG
-from modules import (branding, cleaner, illustrations, languages, ocr, prompts, reader,
-                     scripter, splitter, subtitles, summarizer, titles, translator, tts,
+from modules import (branding, cleaner, curiosity, illustrations, languages, ocr, prompts,
+                     reader, scripter, splitter, subtitles, summarizer, titles, translator, tts,
                      uploader, video, visuals)
 
 def slugify(text: str, default: str = "livre") -> str:
@@ -30,14 +30,42 @@ def slugify(text: str, default: str = "livre") -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60] or default
 
 
-def series_slug(title: str, source: str | Path, lang: str, book_lang: str) -> str:
+def series_slug(title: str, source: str | Path, lang: str, book_lang: str,
+                short: bool = False, single: bool = False) -> str:
     """Dossier de la série : titre du livre, plus la langue de la vidéo si elle diffère.
 
+    Chaque variante a son propre dossier et n'écrase jamais l'originale : « -ar »
+    (autre langue), « -longue » (tout en une vidéo), « -short » (Shorts 9:16).
     Un titre sans lettres latines (arabe…) prend le nom du fichier, sinon une empreinte.
     """
     base = (slugify(title, "") or slugify(Path(source).stem, "")
             or "livre-" + hashlib.sha1(title.encode()).hexdigest()[:6])
-    return base if lang == book_lang else f"{base}-{lang}"
+    base = base if lang == book_lang else f"{base}-{lang}"
+    base = f"{base}-longue" if single else base
+    return f"{base}-short" if short else base
+
+
+# Format « Short » (YouTube Shorts) : vertical, sans générique, scènes courtes.
+SHORT_DEFAULTS = {
+    "resolution": (1080, 1920),
+    "add_intro": False,
+    "scene_seconds": 8,
+    "scene_min_seconds": 3,
+    "scene_max_seconds": 8,
+    "segment_max_chars": 120,
+}
+
+
+def effective_config(config: dict | None) -> dict:
+    """CONFIG + réglages du format Short (si demandé) + réglages explicites."""
+    user = dict(config or {})
+    short = user.get("video_format", CONFIG.get("video_format")) == "short"
+    merged = {**CONFIG, **(SHORT_DEFAULTS if short else {}), **user}
+    if short:
+        w, h = merged["resolution"]
+        if w > h:  # une résolution paysage (ex. 1280x720) devient verticale (720x1280)
+            merged["resolution"] = (h, w)
+    return merged
 
 
 def book_language(text: str, config: dict) -> tuple[str, bool]:
@@ -95,7 +123,7 @@ def main(book_path: str | Path, config: dict | None = None,
     dans le manifeste pour pouvoir régénérer un épisode avec les mêmes réglages.
     `prompts_only` : prépare seulement les prompts d'images et les dossiers de scènes.
     """
-    config = {**CONFIG, **(config or {})}
+    config = effective_config(config)
     video.check_ffmpeg()
 
     book = reader.load_book(book_path)                          # 1. Lecture
@@ -110,7 +138,9 @@ def main(book_path: str | Path, config: dict | None = None,
     # série est distincte (suffixe « -ar », « -en »…) de celle dans la langue du livre.
     source_lang, translated = book_language(texte, config)
     series = series_slug(book.title, book.source, config["language"],
-                         source_lang if translated else config["language"])
+                         source_lang if translated else config["language"],
+                         short=config.get("video_format") == "short",
+                         single=config.get("split_mode") == "single")
     if series != slug:
         _drop_progress(out_dir)
         slug, out_dir = series, Path(config["output_dir"]) / series
@@ -125,7 +155,10 @@ def main(book_path: str | Path, config: dict | None = None,
         (title,) = translator.translate_titles([book.title], config, source=source_lang,
                                                book_title=book.title, cache_dir=cache_dir)
         book = dataclasses.replace(book, title=title)
-    episodes = splitter.split(texte, config)                    # 3. Découpage
+    if book.metadata.get("curiosite"):  # une question = un épisode, même courte
+        config = {**config, "min_words": 0, "split_mode": config["split_mode"]
+                  if config["split_mode"] == "single" else "chapter"}
+    episodes = splitter.split(texte, {**config, "single_title": book.title})  # 3. Découpage
     if not episodes:
         raise SystemExit("Aucun texte exploitable dans ce livre.")
     # Titres « Partie N » remplacés par des titres proposés par Claude. Le titre
@@ -282,7 +315,7 @@ def main(book_path: str | Path, config: dict | None = None,
         uploader.upsert_episode(manifest, {                                # 8. À valider
             "number": ep.number,
             "title": ep.title,
-            "youtube_title": youtube_title(book.title, ep, config),
+            "youtube_title": youtube_title(book.title, ep, config, total, book.metadata),
             "description": youtube_description(book, ep, total, config, credits),
             "image_credits": credits,
             "tags": list(dict.fromkeys([*config.get("tags", []), book.title]
@@ -351,8 +384,19 @@ def ensure_text(book: reader.Book, config: dict | None = None, *, client=None,
     return dataclasses.replace(book, text=text)
 
 
-def youtube_title(book_title: str, ep: splitter.Episode, config: dict) -> str:
+def youtube_title(book_title: str, ep: splitter.Episode, config: dict, total: int = 0,
+                  meta: dict | None = None) -> str:
     label = languages.get(config["language"]).labels["episode"]
+    meta = meta or {}
+    proposed = meta.get("youtube_titles") or []
+    if config.get("video_format") == "short":
+        # Short : la question elle-même (ou le titre proposé par Claude), + #Shorts.
+        base = (proposed[ep.number - 1] if ep.number <= len(proposed)
+                and proposed[ep.number - 1] and not config.get("translated_from")
+                else curiosity.question_of(ep.title))
+        return f"{base[:90].rstrip()} #Shorts"
+    if total == 1 and ep.title == book_title:  # une seule vidéo (ex. les 4 questions)
+        return book_title[:100]
     title = f"{book_title} — {label} {ep.number} : {ep.title}"
     if len(title) > 100:  # limite YouTube
         title = f"{book_title[:60].rstrip()}… — {label} {ep.number}"
@@ -370,7 +414,21 @@ def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, con
             f"{excerpt}\n\n{labels['voice']}"
             + (f" {labels['summary']}" if config.get("narration_mode") == "resume" else "")
             + (f" {labels['translation']}" if config.get("translated_from") else "")
-            + _credits_block(credits or [], labels))
+            + _credits_block(credits or [], labels)
+            + _hashtags(book.metadata, ep, total, config))
+
+
+def _hashtags(meta: dict, ep: splitter.Episode, total: int, config: dict) -> str:
+    """Hashtags des questions (mode curiosité) ; #Shorts pour un Short."""
+    groups = (meta or {}).get("hashtags") or []
+    if total == 1:
+        tags = [t for group in groups for t in group]
+    else:
+        tags = list(groups[ep.number - 1]) if ep.number <= len(groups) else []
+    if config.get("video_format") == "short":
+        tags.append("Shorts")
+    tags = list(dict.fromkeys(re.sub(r"\s+", "", t.lstrip("#")) for t in tags if t.strip()))
+    return "\n\n" + " ".join(f"#{t}" for t in tags[:8]) if tags else ""
 
 
 def _credits_block(credits: list[str], labels: dict, budget: int = 3500) -> str:
@@ -408,7 +466,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("build", help="générer les vidéos d'un livre (PDF, EPUB, DOCX, TXT)")
     b.add_argument("book", type=Path)
-    b.add_argument("--split", choices=["chapter", "duration", "words"], help="règle de découpage")
+    b.add_argument("--split", choices=["chapter", "duration", "words", "single"],
+                   help="règle de découpage (single : tout en une seule vidéo)")
+    b.add_argument("--format", choices=["standard", "short"],
+                   help="standard (16:9) ou short (YouTube Shorts vertical 9:16, sans générique)")
     b.add_argument("--minutes", type=float, help="durée cible d'un épisode (mode duration)")
     b.add_argument("--max-minutes", type=float, help="durée max d'un chapitre avant redécoupage")
     b.add_argument("--words", type=int, help="nombre de mots par épisode (mode words)")
@@ -448,6 +509,13 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--force", action="store_true", help="régénérer les vidéos existantes")
     b.add_argument("--prompts-only", action="store_true",
                    help="préparer seulement les prompts d'images et les dossiers de scènes")
+
+    cu = sub.add_parser("curiosite", help="« Savez-vous pourquoi… ??? » : 4 questions sur un "
+                                          "mot-clé, rédigées par Claude")
+    cu.add_argument("mot_cle")
+    cu.add_argument("--domaine", default="", help="ex. « santé et corps humain »")
+    cu.add_argument("--lang", choices=list(languages.CODES), help="langue des questions")
+    cu.add_argument("--words", type=int, help="longueur d'un script (défaut 120 mots ≈ 45 s)")
 
     pr = sub.add_parser("presentation", help="faire rédiger la présentation du livre par Claude")
     pr.add_argument("book", type=Path)
@@ -492,6 +560,19 @@ def write_presentation(book_path: str | Path, config: dict | None = None,
     return text
 
 
+def write_curiosity(keyword: str, domain: str = "", lang: str | None = None,
+                    words: int | None = None, client=None, log=print) -> Path:
+    """Fait écrire les 4 questions d'un mot-clé et les enregistre dans data/input/."""
+    config = {**CONFIG, **({"language": lang} if lang else {}),
+              **({"curiosity_words": words} if words else {})}
+    channel = branding.load_channel(config)
+    data = curiosity.generate(keyword, config, domain=domain,
+                              channel_name=channel.narrated_name, client=client)
+    for n, q in enumerate(data["questions"], 1):
+        log(f"{n}. [{q['angle']}] {q['question']}\n   à vérifier : {q['a_verifier']}")
+    return curiosity.save(data, config["input_dir"])
+
+
 def _reusable_options(argv: list[str], book: str) -> list[str]:
     """Options de `build` à réutiliser pour régénérer un épisode (sans livre ni sélection)."""
     args = list(argv[1:])  # retire « build »
@@ -522,6 +603,7 @@ def cli(argv: list[str] | None = None) -> int:
             "tts_rate": args.rate, "visual_style": args.style,
             "scene_seconds": args.scene_seconds, "scene_cut": args.scene_cut,
             "visual_mode": args.visuels, "anime_fill": args.anime_fill,
+            "video_format": args.format,
             "illustration_theme": args.theme,
             "illustration_hint": args.image_hint, "illustration_source": args.images,
             "image_style": args.image_style,
@@ -538,6 +620,12 @@ def cli(argv: list[str] | None = None) -> int:
              prompts_only=args.prompts_only,
              build_options=_reusable_options(argv if argv is not None else sys.argv[1:],
                                              str(args.book)))
+    elif args.command == "curiosite":
+        path = write_curiosity(args.mot_cle, args.domaine, args.lang, args.words)
+        print(f"\nQuestions enregistrées (modifiables) : {path}")
+        print("Ensuite :")
+        print(f"    python main.py build {path} --format short --style illustre   # 4 Shorts")
+        print(f"    python main.py build {path} --split single --style illustre   # vidéo longue")
     elif args.command == "presentation":
         print(write_presentation(args.book, {"language": args.lang} if args.lang else None,
                                  force=args.force))

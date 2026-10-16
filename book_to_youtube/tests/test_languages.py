@@ -135,6 +135,8 @@ def test_same_language_is_not_translated(monkeypatch):
 def test_series_slug():
     assert main.series_slug("Le Collier", "x.pdf", "fr", "fr") == "le-collier"
     assert main.series_slug("Le Collier", "x.pdf", "ar", "fr") == "le-collier-ar"
+    assert main.series_slug("Le Collier", "x.pdf", "fr", "fr", single=True) == "le-collier-longue"
+    assert main.series_slug("Le Collier", "x.pdf", "ar", "fr", short=True) == "le-collier-ar-short"
     assert main.series_slug("الرجل والجبل", "rif.pdf", "ar", "ar") == "rif"
     assert main.series_slug("الرجل", "كتاب.pdf", "ar", "ar").startswith("livre-")
 

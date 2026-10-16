@@ -203,13 +203,28 @@
   <section class="card">
     <h2><span class="n">1</span> Importer un livre</h2>
     <div class="row">
-      <input type="file" id="bookFile" accept=".pdf,.epub,.docx,.txt,.md" class="grow">
+      <input type="file" id="bookFile" accept=".pdf,.epub,.docx,.txt,.md,.json" class="grow">
       <button class="primary" id="uploadBtn">Importer</button>
     </div>
     <div class="bar" id="uploadBarWrap" style="margin-top:8px" hidden><div id="uploadBar"></div></div>
     <p class="muted" style="margin:8px 0 10px">PDF, EPUB, DOCX ou TXT. Le fichier est copié dans
       <code>data/input/</code>. Un PDF scanné (pages en images) est lu par OCR.</p>
     <div class="books" id="books"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">?</span> Savez-vous pourquoi… ???</h2>
+    <p class="muted" style="margin:0 0 10px">Un mot-clé → Claude écrit 4 questions (pourquoi, le
+      saviez-vous, comment, qu'est-ce que) avec leur script de ~45 s. Relisez-les, puis générez
+      4 Shorts verticaux et/ou une vidéo longue.</p>
+    <div class="grid2">
+      <label>Mot-clé <input id="curioKeyword" placeholder="ex. sommeil, foudre, café"></label>
+      <label>Domaine <input id="curioDomain" placeholder="ex. santé et corps humain"></label>
+      <label>Langue <select id="curioLang"></select></label>
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:10px">
+      <button class="primary" id="curioGo">Écrire les 4 questions</button>
+    </div>
   </section>
 
   <div id="seriesList" style="display:grid; gap:16px"></div>
@@ -238,7 +253,8 @@
       <div class="grid2">
         <label>Règle
           <select name="split">
-            <option value="chapter">Par chapitre</option>
+            <option value="chapter">Par chapitre (ou par question)</option>
+            <option value="single">Une seule vidéo (tout le livre / les 4 questions)</option>
             <option value="duration">Par durée</option>
             <option value="words">Par nombre de mots</option>
           </select></label>
@@ -310,6 +326,11 @@
           </select></label>
         <label>Style des prompts d'images
           <input name="image_style" placeholder="ex. aquarelle, gravure ancienne…"></label>
+        <label>Format
+          <select name="format">
+            <option value="standard">Vidéo 16:9 (YouTube)</option>
+            <option value="short">Short vertical 9:16 (sans générique, ≤ 60 s)</option>
+          </select></label>
         <label>Visuels des scènes
           <select name="visuels">
             <option value="images">option-images : images fixes</option>
@@ -351,6 +372,25 @@
       Avec l'option-anime, animez ensuite cette image avec le prompt 🎬 dans votre générateur
       image→vidéo et ajoutez le clip : il remplace l'image dans la vidéo.</p>
     <div class="scenes" id="sceneList"></div>
+  </div>
+</dialog>
+
+<!-- Questions « Savez-vous pourquoi… ??? » -->
+<dialog id="curioDialog">
+  <div class="inner">
+    <div class="row">
+      <h2 class="grow" style="margin:0" id="curioHead">Questions</h2>
+      <button id="curioClose">Fermer</button>
+    </div>
+    <p class="muted" style="margin:0">Vérifiez chaque réponse avant de générer : la ligne
+      « À vérifier » indique quoi contrôler et où. Ensuite, sur le fichier dans « Livres » :
+      <strong>Générer…</strong> avec le format <em>Short</em> (4 Shorts) ou le découpage
+      <em>Une seule vidéo</em> (vidéo longue).</p>
+    <label>Titre de la série <input id="curioTitle"></label>
+    <div id="curioList" style="display:grid; gap:12px"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="primary" id="curioSave">Enregistrer</button>
+    </div>
   </div>
 </dialog>
 
@@ -490,7 +530,7 @@ async function refresh() {
 }
 
 function render() {
-  renderChannel(); renderJob(); renderBooks(); renderEnv(); renderHistory();
+  renderChannel(); renderJob(); renderBooks(); renderEnv(); renderHistory(); fillLanguages();
   // Pas de reconstruction des séries pendant une saisie (présentation…).
   const typing = $("seriesList").contains(document.activeElement)
     && /^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement.tagName);
@@ -622,12 +662,15 @@ function renderBooks() {
         el("div", { style: "font-weight:600; overflow-wrap:anywhere" }, book.name),
         el("div", { class: "muted", style: "font-size:13px" }, fmtSize(book.size),
            all.length ? ` · ${all.length > 1 ? "séries" : "série"} ` +
-             all.map(x => `« ${x.title} »${x.language ? ` (${x.language})` : ""}`).join(", ")
+             all.map(x => `« ${x.title} » (${[x.language, x.short ? "Short" : ""].filter(Boolean).join(", ")})`).join(", ")
              : " · pas encore de série")),
       el("div", { class: "row" },
         el("button", { class: "small", disabled: busy || null,
                        title: "Découpe en scènes et écrit un prompt d'image par scène",
                        onclick: () => openBuild(book.name, "prompts") }, "Préparer les images…"),
+        book.name.endsWith(".curiosite.json")
+          ? el("button", { class: "small", onclick: () => openCuriosity(book.name) }, "Questions…")
+          : "",
         el("button", { class: "primary small", disabled: busy || null,
                        onclick: () => openBuild(book.name, "build") },
            series?.episodes.length ? "Continuer…" : "Générer…"))));
@@ -688,10 +731,60 @@ $("buildForm").addEventListener("submit", async ev => {
   } catch (err) { toast(err.message); }
 });
 
+// --- Savez-vous pourquoi… ??? -----------------------------------------------------------
+const ANGLES = { "pourquoi": "Pourquoi ?", "saviez-vous": "Le saviez-vous ?",
+                 "comment": "Comment ?", "quoi": "Qu'est-ce que c'est ?" };
+let curioName = null;
+$("curioGo").onclick = async () => {
+  const keyword = $("curioKeyword").value.trim();
+  if (!keyword) return toast("Indiquez un mot-clé.");
+  $("curioGo").disabled = true; $("curioGo").textContent = "Claude écrit…";
+  try {
+    const data = await api("/api/curiosity", { keyword, domain: $("curioDomain").value,
+                                                lang: $("curioLang").value });
+    toast("4 questions prêtes : relisez-les."); refresh(); showCuriosity(data);
+  } catch (err) { toast(err.message); }
+  $("curioGo").disabled = false; $("curioGo").textContent = "Écrire les 4 questions";
+};
+async function openCuriosity(name) {
+  try { showCuriosity(await api(`/api/curiosity?name=${encodeURIComponent(name)}`)); }
+  catch (err) { toast(err.message); }
+}
+function showCuriosity(data) {
+  curioName = data.name;
+  $("curioHead").textContent = `« ${data.mot_cle} » — ${data.name}`;
+  $("curioTitle").value = data.titre || "";
+  const rtl = (STATE.languages || []).find(l => l.code === data.langue)?.rtl;
+  $("curioList").replaceChildren(...data.questions.map((q, i) => el("fieldset", { "data-i": i },
+    el("legend", {}, `${i + 1}. ${ANGLES[q.angle] || q.angle}`),
+    el("label", {}, "Question", el("input", { name: "question", value: q.question, dir: rtl ? "rtl" : "auto" })),
+    el("label", {}, "Script lu (~45 s)", Object.assign(el("textarea", { name: "script", dir: rtl ? "rtl" : "auto",
+      style: "min-height:130px" }), { value: q.script })),
+    el("label", {}, "Titre YouTube", el("input", { name: "titre_youtube", value: q.titre_youtube || "", dir: rtl ? "rtl" : "auto" })),
+    el("div", { class: "muted", style: "font-size:13px" }, `#${(q.hashtags || []).join(" #")}`),
+    q.a_verifier ? el("div", { style: "font-size:13px; color:var(--warn)" }, `À vérifier : ${q.a_verifier}`) : "")));
+  $("curioDialog").showModal();
+}
+$("curioSave").onclick = async () => {
+  const questions = [...$("curioList").querySelectorAll("fieldset")].map(f => ({
+    question: f.querySelector("[name=question]").value,
+    script: f.querySelector("[name=script]").value,
+    titre_youtube: f.querySelector("[name=titre_youtube]").value }));
+  try {
+    await api("/api/curiosity-save", { name: curioName, titre: $("curioTitle").value, questions });
+    toast("Questions enregistrées."); $("curioDialog").close(); refresh();
+  } catch (err) { toast(err.message); }
+};
+$("curioClose").onclick = () => $("curioDialog").close();
+
 // Langues : listes remplies à partir du serveur (modules/languages.py).
 function fillLanguages() {
   const langs = STATE.languages || [];
   const opts = () => langs.map(l => el("option", { value: l.code }, `${l.native} (${l.code})`));
+  if (!$("curioLang").options.length) {
+    $("curioLang").replaceChildren(...opts());
+    $("curioLang").value = STATE.default_language;
+  }
   if (!$("langSelect").options.length) {
     $("langSelect").replaceChildren(...opts());
     $("langSelect").value = STATE.default_language;
@@ -858,6 +951,7 @@ function seriesCard(s) {
 
   return el("section", { class: "card" },
     el("h2", {}, el("span", { class: "n" }, "2"), el("bdi", {}, s.title),
+       s.short ? el("span", { class: "badge", style: "margin-inline-start:8px" }, "Short 9:16") : "",
        s.language && s.language !== STATE.default_language
          ? el("span", { class: "badge", style: "margin-inline-start:8px" },
               (STATE.languages || []).find(l => l.code === s.language)?.native || s.language) : "",

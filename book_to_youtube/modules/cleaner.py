@@ -24,18 +24,29 @@ _SENTENCE_END = re.compile(r"[.!?…:»\"”)\]]$")
 # Lignes qui doivent rester des paragraphes isolés (titres de chapitres…).
 HEADING = re.compile(
     r"^(?:(?:chapitre|chapter|partie|part|livre|book|tome|section|"
-    r"capítulo|capitulo|capitolo|kapitel|parte|teil|libro|buch)\s+"
+    r"capítulo|capitulo|capitolo|kapitel|parte|teil|libro|buch|"
+    r"question|pregunta|frage|domanda|pergunta)\s+"
     r"(?:\d+|[ivxlcdm]+|premier|première|[a-zéèêûôáíóúñçãõàìòü\-]+)\b.*"
     r"|(?:prologue|épilogue|epilogue|préface|preface|avant-propos|introduction|"
     r"conclusion|postface|interlude|prólogo|prologo|epílogo|epilogo|prolog|epilog|"
     r"vorwort|nachwort|einleitung|introducción|introduzione|introdução|prefacio|"
     r"prefazione|prefácio)\b.*"
     # Arabe : « الفصل الأول », « الباب 3 », « المقدمة »…
-    r"|(?:الفصل|الباب|الجزء|القسم)\s+\S+.*"
+    r"|(?:الفصل|الباب|الجزء|القسم|السؤال)\s+\S+.*"
     r"|(?:المقدمة|مقدمة|الخاتمة|خاتمة|تمهيد|التمهيد|الخلاصة)(?:\s.*)?"
     r"|(?-i:[IVXLC]{1,6})\.?)$",
     re.IGNORECASE,
 )
+# « Question 2 — Savez-vous pourquoi… ? » (mode curiosité) : titre plus long permis.
+_QUESTION_HEADING = re.compile(r"^(?:question|pregunta|frage|domanda|pergunta|السؤال)\s*\d+\s*[—:\-–]",
+                               re.IGNORECASE)
+
+
+def is_heading(line: str) -> bool:
+    """Titre de chapitre (ligne courte reconnue par HEADING)."""
+    limit = 220 if _QUESTION_HEADING.match(line) else 100
+    return len(line) < limit and bool(HEADING.match(line))
+
 
 
 def clean(text: str) -> str:
@@ -108,7 +119,7 @@ def _join_lines(lines: list[str]) -> list[str]:
         if not line:
             pending_break = True
             continue
-        if HEADING.match(line) and len(line) < 100:
+        if is_heading(line):
             flush()
             paragraphs.append(line)
             pending_break = False

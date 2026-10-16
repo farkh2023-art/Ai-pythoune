@@ -293,3 +293,33 @@ def test_scene_clip_upload_preview_and_delete(server):
                                                         "scene": 1})
     assert status == 200 and out["scenes"][0]["clip"] is None
     assert not list(folder.glob("scene_01.*"))
+
+
+def test_curiosity_questions_from_dashboard(server, monkeypatch):
+    base, data, dashboard = server
+    assert call(base, "/api/curiosity", {"keyword": "sommeil"})[0] == 400  # pas de clé
+    from modules import claude_client, curiosity
+    import main
+    monkeypatch.setattr(claude_client, "available", lambda: True)
+
+    def fake_write(keyword, domain, lang, words=None, client=None, log=print):
+        return curiosity.save({"mot_cle": keyword, "domaine": domain, "langue": lang,
+                               "titre": "Le sommeil", "questions": [
+                                   {"angle": "pourquoi", "question": "Q ?", "script": "S.",
+                                    "titre_youtube": "T", "hashtags": ["a"],
+                                    "a_verifier": "V"}]}, data / "input")
+
+    monkeypatch.setattr(main, "write_curiosity", fake_write)
+    status, out = call(base, "/api/curiosity", {"keyword": "sommeil", "lang": "ar"})
+    assert status == 200 and out["name"] == "sommeil-ar.curiosite.json"
+    _, state = call(base, "/api/state")
+    assert [b["name"] for b in state["books"]] == ["sommeil-ar.curiosite.json"]
+    status, out = call(base, "/api/curiosity-save", {
+        "name": "sommeil-ar.curiosite.json", "titre": "Le sommeil (relu)",
+        "questions": [{"question": "Question corrigée ?", "script": " ", "titre_youtube": "T2"}]})
+    assert status == 200 and out["titre"] == "Le sommeil (relu)"
+    saved = call(base, "/api/curiosity?name=sommeil-ar.curiosite.json")[1]
+    q = saved["questions"][0]
+    assert (q["question"], q["script"], q["titre_youtube"]) == ("Question corrigée ?", "S.", "T2")
+    (data / "input" / "livre.txt").write_text("x")
+    assert call(base, "/api/curiosity?name=livre.txt")[0] in (400, 404)
