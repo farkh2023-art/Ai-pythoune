@@ -361,6 +361,33 @@ def action_delete_scene_image(body: dict) -> dict:
     return {"scenes": scenes_for(slug, number)}
 
 
+def action_delete_series(body: dict) -> dict:
+    """Supprime une série : vidéos, textes, voix, images et prompts (pas YouTube)."""
+    slug = _series_slug(body.get("slug", ""))
+    if RUNNER.current:
+        raise RuntimeError("Une tâche est en cours : attendez sa fin ou annulez-la "
+                           "avant de supprimer une série.")
+    manifest = _read_json(Path(CONFIG["output_dir"]) / slug / "manifest.json", {})
+    roots = [CONFIG["output_dir"], CONFIG["episodes_dir"], CONFIG["audio_dir"],
+             CONFIG["images_dir"], illustrations.illustrations_root(CONFIG)]
+    removed = []
+    for root in roots:
+        folder = Path(root) / slug
+        if folder.is_dir():
+            shutil.rmtree(folder)
+            removed.append(str(folder))
+    book = None
+    source = manifest.get("book", {}).get("source")
+    if body.get("delete_book") and source:
+        path = Path(source)
+        path = path if path.is_absolute() else BASE_DIR / path
+        # Seulement un livre importé (data/input), jamais un fichier ailleurs.
+        if path.is_file() and path.resolve().parent == Path(CONFIG["input_dir"]).resolve():
+            path.unlink()
+            book = path.name
+    return {"deleted": slug, "folders": removed, "book": book}
+
+
 def action_regenerate(body: dict) -> Job:
     folder = _series_dir(body["slug"])
     manifest = uploader.load_manifest(folder / "manifest.json")
@@ -538,6 +565,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/presentation": lambda: action_presentation(body),
                 "/api/presentation-draft": lambda: action_presentation_draft(body),
                 "/api/scene-image-delete": lambda: action_delete_scene_image(body),
+                "/api/delete-series": lambda: action_delete_series(body),
                 "/api/build": lambda: asdict(action_build(body)),
                 "/api/regenerate": lambda: asdict(action_regenerate(body)),
                 "/api/publish": lambda: asdict(action_publish(body)),

@@ -814,7 +814,26 @@ function seriesCard(s) {
     extras, steps, toolbar, list,
     s.playlist_id ? el("p", { class: "muted", style: "margin:10px 0 0" },
       el("a", { href: `https://www.youtube.com/playlist?list=${s.playlist_id}`, target: "_blank",
-                rel: "noopener" }, "Playlist YouTube de la série ↗")) : "");
+                rel: "noopener" }, "Playlist YouTube de la série ↗")) : "",
+    el("div", { class: "row", style: "justify-content:flex-end; margin-top:12px" },
+      el("button", { class: "small danger", disabled: busy || null,
+        title: busy ? "Attendez la fin de la tâche en cours" : "Efface les fichiers de cette série",
+        onclick: () => deleteSeries(s) }, "Supprimer la série")));
+}
+
+async function deleteSeries(series) {
+  const n = series.episodes.length;
+  if (!confirm(`Supprimer définitivement « ${series.title} » ?\n\n${n} vidéo(s), voix, ` +
+               "images, prompts et textes de cette série seront effacés. Ce qui est déjà " +
+               "sur YouTube ou copié dans Téléchargements n'est pas touché.")) return;
+  const deleteBook = confirm(`Supprimer aussi le livre importé${series.source ? ` (${series.source})` : ""} ?` +
+                             "\n\nOK = le supprimer · Annuler = le garder pour le régénérer plus tard");
+  try {
+    const out = await api("/api/delete-series", { slug: series.slug, delete_book: deleteBook });
+    delete ui.selected[series.slug];
+    toast(`Série « ${series.title} » supprimée` + (out.book ? `, livre ${out.book} compris.` : "."));
+    await refresh();
+  } catch (err) { toast(err.message); }
 }
 
 async function review(series, episodes, action, note) {

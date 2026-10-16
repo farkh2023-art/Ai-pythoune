@@ -84,6 +84,9 @@ permet de :
   le régénérer avec les mêmes réglages ;
 - **publier** les épisodes validés (privé, non répertorié ou public), avec le lien
   d'autorisation Google cliquable dans le journal au premier envoi.
+- **supprimer une série** (bouton en bas de sa carte, après confirmation) : vidéos,
+  textes, voix, images et prompts sont effacés, et au choix le livre importé ; ce qui
+  est déjà sur YouTube ou copié dans Téléchargements n'est pas touché.
 
 Le serveur n'écoute que sur l'appareil lui-même, et chaque requête doit porter le
 jeton secret de l'adresse affichée : ne la partagez pas. Une seule tâche tourne à la
