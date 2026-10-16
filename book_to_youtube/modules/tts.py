@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import subprocess
+import sys
 import tempfile
 import wave
 from dataclasses import dataclass
@@ -24,8 +25,22 @@ from .splitter import count_words
 SAMPLE_RATE = 24000
 DEFAULT_VOICES = {
     "edge": {"fr": "fr-FR-DeniseNeural", "en": "en-US-AriaNeural"},
-    "gtts": {"fr": "fr", "en": "en"},
 }
+
+
+def voice_for(engine: str, lang: str, voice: str | None = None) -> str | None:
+    """Voix à utiliser : celle demandée si elle parle la langue, sinon celle de la langue."""
+    from . import languages
+    if engine == "gtts":
+        return lang
+    if engine != "edge":
+        return voice
+    if voice and voice.lower().startswith(f"{lang.lower()}-"):
+        return voice
+    if voice:
+        print(f"Avertissement : la voix {voice} ne parle pas la langue « {lang} », "
+              "voix par défaut de la langue utilisée.", file=sys.stderr)
+    return DEFAULT_VOICES["edge"].get(lang) or languages.get(lang).default_voice
 
 
 @dataclass
@@ -50,7 +65,7 @@ def synthesize(script: Script, out_path: str | Path, config: dict) -> AudioTrack
     out_path.parent.mkdir(parents=True, exist_ok=True)
     engine = config.get("tts_engine", "edge")
     lang = config.get("language", "fr")
-    voice = config.get("voice") or DEFAULT_VOICES.get(engine, {}).get(lang)
+    voice = voice_for(engine, lang, config.get("voice"))
     cache_dir = Path(config.get("audio_dir", out_path.parent)) / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 

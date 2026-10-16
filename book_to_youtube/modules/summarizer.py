@@ -19,7 +19,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from . import claude_client
+from . import claude_client, languages
 from .splitter import Episode, count_words
 
 FALLBACK_BETA = claude_client.FALLBACK_BETA
@@ -33,7 +33,7 @@ PROMPTS = {
         "instructions": """Résume l'extrait ci-dessous pour l'épisode {number} sur {total} de la série consacrée à « {book} »{author}.
 
 Consignes :
-- Environ {words} mots, en français.
+- Environ {words} mots, en {langue}.
 - Prose continue, en paragraphes séparés par une ligne vide. Pas de titres, de listes, de markdown ni d'emoji : tout est lu à voix haute.
 - Raconte au présent de narration, de façon vivante et claire pour un auditeur qui n'a pas lu le livre.
 - Reste fidèle au texte : garde les personnages, les événements clés et les idées principales, dans l'ordre. N'invente rien et ne donne pas ton avis.
@@ -76,13 +76,16 @@ def summarize_episode(episode: Episode, config: dict, *, book_title: str,
                       cache_dir: str | Path | None = None, client=None) -> Episode:
     """Retourne une copie de l'épisode dont le texte est le résumé narratif."""
     lang = config.get("language", "fr")
-    prompts = PROMPTS.get(lang, PROMPTS["fr"])
+    # Consignes en français pour toutes les langues sauf l'anglais ; le texte est
+    # rédigé dans la langue de la vidéo (« en arabe », « en espagnol »…).
+    prompts = PROMPTS["en"] if lang == "en" else PROMPTS["fr"]
     model = config.get("summary_model", "claude-opus-5-5")
     target = target_words(episode, config)
     prompt = prompts["instructions"].format(
         number=episode.number, total=total_episodes, book=book_title,
         author=prompts["author"].format(author=author) if author else "",
         words=target, title=episode.title, text=episode.text,
+        langue=languages.get(lang).name,
     )
 
     cache = None

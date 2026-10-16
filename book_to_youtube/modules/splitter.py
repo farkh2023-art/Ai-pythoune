@@ -20,7 +20,10 @@ from pathlib import Path
 
 from .cleaner import HEADING
 
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])[»\"”)]*\s+(?=[«\"“(\-—–A-ZÀ-ÖØ-Þ0-9])")
+# Fin de phrase (. ! ? … et le point d'interrogation arabe ؟) suivie d'une majuscule,
+# ou de n'importe quelle lettre arabe (l'arabe n'a pas de majuscules).
+_SENTENCE_SPLIT = re.compile(
+    r"(?<=[.!?…؟])[»\"”)]*\s+(?=[«\"“(\-—–A-ZÀ-ÖØ-Þ0-9¿¡\u0600-\u06FF])")
 
 
 @dataclass
@@ -193,7 +196,8 @@ def _merge_small(episodes: list[tuple[str | None, str]], min_words: int) -> list
 
 
 def _default_title(text: str, number: int, config: dict) -> str:
-    label = "Part" if config.get("language") == "en" else "Partie"
+    from . import languages
+    label = languages.get(config.get("language")).labels["part"]
     return f"{label} {number}"
 
 

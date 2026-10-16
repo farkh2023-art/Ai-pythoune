@@ -21,7 +21,11 @@ CONFIG = {
     "output_dir": DATA_DIR / "output",
 
     # --- Langue ----------------------------------------------------------
-    "language": "fr",  # "fr" ou "en" (textes d'intro/outro, voix par défaut)
+    # Langue de la vidéo : fr, en, ar, es, de, it, pt (voir modules/languages.py).
+    "language": "fr",
+    # Langue du livre : "auto" (détectée) ou un code. Si elle diffère de la langue de
+    # la vidéo, Claude traduit le livre (série distincte, suffixe « -ar »…).
+    "book_language": "auto",
 
     # --- Découpage en épisodes -------------------------------------------
     # "chapter"  : un épisode par chapitre détecté (repli sur "duration" si aucun)

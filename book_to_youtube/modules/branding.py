@@ -98,7 +98,7 @@ PRESENTATION_PROMPTS = {
         "épisode d'une série YouTube qui le raconte.",
         "Écris la présentation du livre « {book} »{author} pour la chaîne « {channel} ».\n\n"
         "Consignes :\n"
-        "- 3 à 5 phrases, 60 à 90 mots, en français, au présent.\n"
+        "- 3 à 5 phrases, 60 à 90 mots, en {langue}, au présent.\n"
         "- Ton chaleureux et captivant : l'époque, le lieu, le héros et l'enjeu, pour donner "
         "envie d'écouter la suite.\n"
         "- Ne révèle ni la fin ni les grands rebondissements.\n"
@@ -130,13 +130,14 @@ def generate_presentation(config: dict, *, book_title: str, author: str | None, 
     """Fait rédiger la présentation du livre par Claude (clé API requise)."""
     import re
 
-    from . import claude_client
+    from . import claude_client, languages
 
     lang = config.get("language", "fr")
-    system, template = PRESENTATION_PROMPTS.get(lang, PRESENTATION_PROMPTS["fr"])
-    by = (" de " if lang == "fr" else " by ") + author if author else ""
+    system, template = PRESENTATION_PROMPTS["en" if lang == "en" else "fr"]
+    by = (" by " if lang == "en" else " de ") + author if author else ""
     prompt = template.format(book=book_title, author=f",{by}" if author else "",
-                             channel=channel_name or ("la chaîne" if lang == "fr" else "the channel"),
+                             channel=channel_name or ("the channel" if lang == "en" else "la chaîne"),
+                             langue=languages.get(lang).name,
                              text=text[:400_000])
     answer = claude_client.ask(system, prompt, config, client, what="la présentation du livre")
     answer = re.sub(r"[*_#`]", "", answer)

@@ -169,8 +169,9 @@ def keywords(text: str, lang: str = "fr", document_freq: Counter | None = None,
 
 
 def _candidates(text: str, lang: str) -> list[str]:
-    stop = STOPWORDS.get(lang, STOPWORDS["fr"])
-    non_noun = _FR_NON_NOUN if lang == "fr" else _EN_NON_NOUN
+    from . import languages
+    stop = STOPWORDS.get(lang) or languages.get(lang).stopwords
+    non_noun = {"fr": _FR_NON_NOUN, "en": _EN_NON_NOUN}.get(lang, re.compile(r"(?!)"))
     words = []
     for match in _WORD.finditer(text):
         word = match.group(0)

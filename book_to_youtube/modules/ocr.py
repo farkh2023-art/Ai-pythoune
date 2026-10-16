@@ -30,7 +30,6 @@ from pathlib import Path
 
 from . import claude_client
 
-TESSERACT_LANGS = {"fr": "fra", "en": "eng"}
 MAX_SIDE = 2000  # côté maximal envoyé à Claude (pixels)
 RENDER_SIDE = 2400  # rendu des pages (PyMuPDF) : grand côté, en pixels
 
@@ -159,7 +158,11 @@ def _claude_pages(images: list[bytes], first: int, config: dict, client=None) ->
 
 
 def _tesseract_page(data: bytes, config: dict) -> str:
-    lang = TESSERACT_LANGS.get(config.get("language", "fr"), "fra")
+    from . import languages
+    # Langue du livre si elle est indiquée (--book-lang), sinon celle de la vidéo.
+    declared = config.get("book_language")
+    source = declared if declared and declared != "auto" else config.get("language", "fr")
+    lang = languages.get(source).tesseract
     result = subprocess.run(["tesseract", "stdin", "stdout", "-l", lang],
                             input=data, capture_output=True)
     if result.returncode != 0:

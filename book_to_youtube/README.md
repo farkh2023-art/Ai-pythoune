@@ -42,7 +42,7 @@ pkg update && pkg upgrade
 pkg install python ffmpeg git python-pillow libxml2 libxslt
 termux-setup-storage
 git clone https://github.com/farkh2023-art/Ai-pythoune.git && cd Ai-pythoune/book_to_youtube
-pip install pypdf edge-tts ebooklib python-docx google-api-python-client google-auth-oauthlib
+pip install pypdf edge-tts ebooklib python-docx google-api-python-client google-auth-oauthlib arabic-reshaper
 ```
 
 PyMuPDF n'a pas de paquet précompilé pour Android : sans lui, les PDF sont lus
@@ -287,6 +287,36 @@ python main.py build data/input/livre.pdf --style illustre --theme "veld Afrique
   de contenu, et une image peut être hors sujet ou inadaptée à votre chaîne.
 - Les images et les recherches sont gardées dans `data/images/commons/` :
   relancer une génération ne retélécharge rien.
+
+### Langues (multilingue)
+
+La vidéo peut être en **français, anglais, arabe, espagnol, allemand, italien ou
+portugais** (`--lang fr|en|ar|es|de|it|pt`, ou « Langue de la vidéo » dans le tableau de
+bord). La langue règle la voix, le générique (« Bienvenue sur… », « الحلقة 1 »…), les
+titres et la description YouTube, et les textes rédigés par Claude (présentation,
+titres, résumé).
+
+- **Livre et vidéo dans la même langue** : le livre est lu tel quel (un livre arabe
+  donne une vidéo arabe).
+- **Langues différentes** (ex. livre français, vidéo arabe) : avec la clé Claude, le
+  livre est **traduit** fidèlement, chapitre par chapitre ; le titre du livre et des
+  chapitres aussi. En mode résumé, Claude résume directement dans la langue de la vidéo.
+  La version traduite est une **série à part** (dossier `…-ar`), à côté de l'originale ;
+  les traductions sont gardées dans `data/episodes/<série>/` et ne sont jamais refaites.
+- La langue du livre est détectée automatiquement ; `--book-lang` la fixe si besoin.
+
+Voix edge-tts proposées (choix « Voix » du tableau de bord, ou `--voice`) : pour l'arabe,
+`ar-SA-HamedNeural` (par défaut), `ar-MA-JamalNeural` / `ar-MA-MounaNeural` (Maroc),
+`ar-EG-…` (Égypte)…
+
+**Écriture arabe** (de droite à gauche, lettres liées) : gérée par Pillow s'il inclut
+raqm ; sinon (souvent sous Termux) installez `pip install arabic-reshaper`. Il faut aussi
+une police arabe : `pkg install ttf-dejavu` sous Termux (sinon Noto Naskh Arabic du
+téléphone est utilisée). OCR d'un livre arabe scanné avec Tesseract : fichier de langue
+`ara.traineddata` (Claude n'en a pas besoin).
+
+Ajouter une langue : une entrée dans `modules/languages.py` (libellés, phrases du
+générique, voix).
 
 ### Mode résumé
 
