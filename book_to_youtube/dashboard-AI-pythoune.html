@@ -251,6 +251,20 @@
       </div>
     </fieldset>
     <fieldset>
+      <legend>Langue</legend>
+      <div class="grid2">
+        <label>Langue de la vidéo
+          <select name="lang" id="langSelect"></select></label>
+        <label>Langue du livre
+          <select name="book_lang" id="bookLangSelect">
+            <option value="auto">Détectée automatiquement</option>
+          </select></label>
+      </div>
+      <p class="muted" style="margin:6px 0 0; font-size:13px">Si le livre est dans une autre
+        langue que la vidéo, Claude le traduit (clé API requise) : la version traduite est une
+        série à part (ex. « …-ar »), à côté de celle d'origine.</p>
+    </fieldset>
+    <fieldset>
       <legend>Narration</legend>
       <div class="grid2">
         <label>Type
@@ -267,12 +281,7 @@
             <option value="silent">Silence (test du montage)</option>
           </select></label>
         <label>Voix edge-tts
-          <select name="voice">
-            <option value="">Denise (femme, défaut)</option>
-            <option value="fr-FR-HenriNeural">Henri (homme)</option>
-            <option value="fr-FR-EloiseNeural">Eloise (femme)</option>
-            <option value="fr-FR-RemyMultilingualNeural">Rémy (homme)</option>
-          </select></label>
+          <select name="voice" id="voiceSelect"></select></label>
       </div>
     </fieldset>
     <fieldset>
@@ -456,11 +465,11 @@ function fmtElapsed(sec) {
 
 const STATUS = { a_generer: "À générer", a_valider: "À valider", valide: "Validé",
                  rejete: "Rejeté", publie: "Publié", en_cours: "En cours" };
-const STAGES = { ocr: "Reconnaissance du texte (OCR)", decoupage: "Découpage du livre", bible: "Bible visuelle du livre",
+const STAGES = { traduction: "Traduction par Claude", ocr: "Reconnaissance du texte (OCR)", decoupage: "Découpage du livre", bible: "Bible visuelle du livre",
                  prompts: "Prompts d'images", resume: "Résumé par Claude", voix: "Voix off",
                  illustrations: "Recherche d'illustrations", visuels: "Visuels",
                  montage: "Montage vidéo", termine: "Épisode terminé", fini: "Terminé" };
-const STAGE_ORDER = ["resume", "prompts", "voix", "illustrations", "visuels", "montage"];
+const STAGE_ORDER = ["traduction", "resume", "prompts", "voix", "illustrations", "visuels", "montage"];
 const JOB_STATUS = { en_cours: "En cours", termine: "Terminé", erreur: "Erreur", annule: "Annulé" };
 
 // --- État ---------------------------------------------------------------------------
@@ -606,12 +615,15 @@ function renderBooks() {
   if (!STATE.books.length) { box.append(el("div", { class: "empty" }, "Aucun livre importé.")); return; }
   const busy = STATE.job?.status === "en_cours";
   for (const book of STATE.books) {
-    const series = STATE.series.find(s => s.source === book.name);
+    const all = STATE.series.filter(s => s.source === book.name);  // une série par langue
+    const series = all[0];
     box.append(el("div", { class: "book" },
       el("div", { class: "grow" },
         el("div", { style: "font-weight:600; overflow-wrap:anywhere" }, book.name),
         el("div", { class: "muted", style: "font-size:13px" }, fmtSize(book.size),
-           series ? ` · série « ${series.title} »` : " · pas encore de série")),
+           all.length ? ` · ${all.length > 1 ? "séries" : "série"} ` +
+             all.map(x => `« ${x.title} »${x.language ? ` (${x.language})` : ""}`).join(", ")
+             : " · pas encore de série")),
       el("div", { class: "row" },
         el("button", { class: "small", disabled: busy || null,
                        title: "Découpe en scènes et écrit un prompt d'image par scène",
@@ -651,11 +663,13 @@ function openBuild(name, mode = "build") {
   const form = $("buildForm");
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem("aip-build") || "{}"); } catch {}
+  fillLanguages();
   for (const field of form.elements) {
     if (!field.name || !(field.name in saved)) continue;
     if (field.type === "checkbox") field.checked = !!saved[field.name] && field.name !== "force";
     else field.value = saved[field.name];
   }
+  fillVoices(form.elements.lang.value || STATE.default_language, saved.voice);
   form.elements.force.checked = false;
   $("buildDialog").showModal();
 }
@@ -673,6 +687,24 @@ $("buildForm").addEventListener("submit", async ev => {
     toggleLog(true); refresh();
   } catch (err) { toast(err.message); }
 });
+
+// Langues : listes remplies à partir du serveur (modules/languages.py).
+function fillLanguages() {
+  const langs = STATE.languages || [];
+  const opts = () => langs.map(l => el("option", { value: l.code }, `${l.native} (${l.code})`));
+  if (!$("langSelect").options.length) {
+    $("langSelect").replaceChildren(...opts());
+    $("langSelect").value = STATE.default_language;
+    $("bookLangSelect").append(...opts());
+  }
+}
+function fillVoices(code, chosen) {
+  const lang = (STATE.languages || []).find(l => l.code === code);
+  $("voiceSelect").replaceChildren(el("option", { value: "" }, "Voix par défaut de la langue"),
+    ...(lang?.voices || []).map(([id, label]) => el("option", { value: id }, label)));
+  $("voiceSelect").value = lang?.voices.some(([id]) => id === chosen) ? chosen : "";
+}
+$("langSelect").addEventListener("change", e => fillVoices(e.target.value));
 
 // --- Séries --------------------------------------------------------------------------
 function episodeRows(series) {
@@ -780,7 +812,7 @@ function seriesCard(s) {
     list.append(el("div", { class: `ep ${r.ep ? "" : "planned"}` },
       box, thumb,
       el("div", { style: "min-width:0" },
-        el("div", { class: "title" }, `${r.number}. ${r.title}`),
+        el("div", { class: "title", dir: "auto" }, `${r.number}. ${r.title}`),
         el("div", { class: "meta" },
           el("span", { class: `badge b-${r.status} ${r.status === "en_cours" ? "pulse" : ""}` },
              r.stage ? `${STATUS.en_cours} — ${r.stage}` : STATUS[r.status]),
@@ -825,7 +857,10 @@ function seriesCard(s) {
         href: media(s.prompts_index) }, "Tous les prompts") : "") : "");
 
   return el("section", { class: "card" },
-    el("h2", {}, el("span", { class: "n" }, "2"), s.title,
+    el("h2", {}, el("span", { class: "n" }, "2"), el("bdi", {}, s.title),
+       s.language && s.language !== STATE.default_language
+         ? el("span", { class: "badge", style: "margin-inline-start:8px" },
+              (STATE.languages || []).find(l => l.code === s.language)?.native || s.language) : "",
        s.author ? el("span", { class: "muted", style: "font-weight:400" }, ` — ${s.author}`) : ""),
     extras, steps, toolbar, list,
     s.playlist_id ? el("p", { class: "muted", style: "margin:10px 0 0" },

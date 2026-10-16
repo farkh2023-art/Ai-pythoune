@@ -12,13 +12,15 @@ Le module produit aussi la miniature YouTube (1280×720).
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 
+from . import languages
 from .scripter import Script
 from .tts import Timing
 
@@ -61,10 +63,6 @@ _FONT_CANDIDATES = {
     ],
 }
 
-LABELS = {
-    "fr": {"episode": "Épisode", "next": "À suivre…", "end": "Fin"},
-    "en": {"episode": "Episode", "next": "To be continued…", "end": "The End"},
-}
 
 
 @dataclass
@@ -73,12 +71,53 @@ class Slide:
     duration: float
 
 
+# Écritures de droite à gauche (arabe) : polices qui contiennent l'alphabet arabe
+# (DejaVu Sans couvre aussi le latin ; sous Android, Noto Naskh Arabic est fournie).
+_RTL_FONTS = {
+    "bold": [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+        "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf",
+        "/system/fonts/NotoNaskhArabic-Bold.ttf",
+        "/system/fonts/NotoSansArabic-Bold.ttf",
+        "/Library/Fonts/Arial Bold.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "DejaVuSans-Bold.ttf",
+    ],
+    "regular": [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+        "/system/fonts/NotoNaskhArabic-Regular.ttf",
+        "/system/fonts/NotoSansArabic-Regular.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "DejaVuSans.ttf",
+    ],
+}
+_RTL_FONTS["sans"] = _RTL_FONTS["regular"]
+
+_text_lang = "fr"  # langue des textes dessinés (fixée par SlideRenderer)
+
+
+def set_language(lang: str | None) -> None:
+    global _text_lang
+    _text_lang = lang or "fr"
+
+
 _font_warning_shown = False
 
 
-@lru_cache(maxsize=64)
 def _font(kind: str, size: int, custom: str | None = None) -> ImageFont.FreeTypeFont:
-    for candidate in ([custom] if custom else []) + _FONT_CANDIDATES[kind]:
+    return _load_font(kind, size, custom, languages.get(_text_lang).rtl)
+
+
+@lru_cache(maxsize=64)
+def _load_font(kind: str, size: int, custom: str | None, rtl: bool) -> ImageFont.FreeTypeFont:
+    candidates = _RTL_FONTS[kind] if rtl else _FONT_CANDIDATES[kind]
+    for candidate in ([custom] if custom else []) + candidates:
         try:
             return ImageFont.truetype(candidate, size)
         except OSError:
@@ -109,6 +148,74 @@ def _background(config: dict, size: tuple[int, int]) -> Image.Image:
         t = y / max(h - 1, 1)
         gradient.putpixel((0, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
     return gradient.resize(size)
+
+
+# --- Écriture de droite à gauche -----------------------------------------------------
+#
+# Avec la bibliothèque raqm (incluse dans la plupart des Pillow), Pillow lie les
+# lettres arabes et ordonne la ligne lui-même. Sinon, on lie les lettres avec
+# arabic-reshaper (`pip install arabic-reshaper`) et on inverse l'ordre de la ligne,
+# en gardant les mots latins et les nombres dans leur sens.
+
+_LTR_RUN = re.compile(r"[A-Za-z0-9À-ÿ](?:[A-Za-z0-9À-ÿ .,:'’/\-]*[A-Za-z0-9À-ÿ])?")
+_MIRROR = str.maketrans("()[]{}«»<>", ")(][}{»«><")
+_reshape_warning_shown = False
+
+
+@lru_cache(maxsize=1)
+def _has_raqm() -> bool:
+    return features.check("raqm")
+
+
+def visual_order(text: str) -> str:
+    """Ligne arabe prête à dessiner sans raqm : lettres liées, ordre de lecture inversé."""
+    global _reshape_warning_shown
+    try:
+        import arabic_reshaper
+        text = arabic_reshaper.reshape(text)
+    except ImportError:
+        if not _reshape_warning_shown:
+            _reshape_warning_shown = True
+            print("Avertissement : texte arabe sans liaison des lettres. Installez "
+                  "arabic-reshaper (`pip install arabic-reshaper`) ou un Pillow avec raqm.",
+                  file=sys.stderr)
+    flipped = text[::-1].translate(_MIRROR)
+    return _LTR_RUN.sub(lambda m: m.group(0)[::-1].translate(_MIRROR), flipped)
+
+
+class _BidiDraw:
+    """ImageDraw qui écrit correctement les lignes en arabe (le reste est inchangé)."""
+
+    def __init__(self, img: Image.Image):
+        self._draw = ImageDraw.Draw(img)
+
+    def __getattr__(self, name):
+        return getattr(self._draw, name)
+
+    @staticmethod
+    def _prepare(text: str, kwargs: dict) -> tuple[str, dict]:
+        if not languages.is_rtl_text(text):
+            return text, kwargs
+        if _has_raqm():
+            return text, {**kwargs, "direction": "rtl", "language": "ar"}
+        return visual_order(text), kwargs
+
+    def text(self, xy, text, *args, **kwargs):
+        text, kwargs = self._prepare(text, kwargs)
+        return self._draw.text(xy, text, *args, **kwargs)
+
+    def textlength(self, text, *args, **kwargs):
+        text, kwargs = self._prepare(text, kwargs)
+        return self._draw.textlength(text, *args, **kwargs)
+
+    def textbbox(self, xy, text, *args, **kwargs):
+        text, kwargs = self._prepare(text, kwargs)
+        return self._draw.textbbox(xy, text, *args, **kwargs)
+
+
+def _canvas(img: Image.Image):
+    """ImageDraw adapté à la langue des textes (arabe : droite à gauche)."""
+    return _BidiDraw(img) if languages.get(_text_lang).rtl else ImageDraw.Draw(img)
 
 
 def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[str]:
@@ -161,7 +268,8 @@ class SlideRenderer:
         self.book_title = book_title
         self.number = episode_number
         self.title = episode_title
-        self.labels = LABELS.get(config.get("language", "fr"), LABELS["fr"])
+        self.labels = languages.get(config.get("language", "fr")).labels
+        set_language(config.get("language", "fr"))
         self.text_color = tuple(config.get("text_color", (245, 245, 245)))
         self.accent = tuple(config.get("accent_color", (255, 196, 87)))
         self.custom_font = config.get("font_path")
@@ -190,7 +298,7 @@ class SlideRenderer:
 
     def _frame(self, progress: float | None) -> tuple[Image.Image, ImageDraw.ImageDraw]:
         img = self.base.copy()
-        draw = ImageDraw.Draw(img)
+        draw = _canvas(img)
         w, h = self.size
         header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
         draw.text((self._header_x(img), self._px(50)), header,
@@ -279,7 +387,7 @@ class SlideRenderer:
                 mode = img.mode
                 img = Image.alpha_composite(img.convert("RGBA"), layer)
                 img = img if mode == "RGBA" else img.convert(mode)
-                draw = ImageDraw.Draw(img)
+                draw = _canvas(img)
                 _draw_block(draw, lines, font, lh, y + height / 2, w, color)
             elif kind == "image":
                 img.paste(content, (round((w - content.width) / 2), round(y)), content)
@@ -320,7 +428,7 @@ class SlideRenderer:
             (self._px(100), box_top, w - self._px(100), box_top + box_h),
             radius=self._px(18), fill=(0, 0, 0, 165))
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-        _draw_block(ImageDraw.Draw(img), sub_lines, sub_font, sub_lh,
+        _draw_block(_canvas(img), sub_lines, sub_font, sub_lh,
                     box_top + box_h / 2, w, (255, 255, 255))
         return img
 
@@ -346,7 +454,7 @@ class OverlayRenderer(SlideRenderer):
     def _frame(self, progress):
         veil = {True: self.VEIL, "fort": (0, 0, 0, 200)}.get(self._veil, (0, 0, 0, 0))
         img = Image.new("RGBA", self.size, veil)
-        draw = ImageDraw.Draw(img)
+        draw = _canvas(img)
         w, h = self.size
         header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
         font = _font("bold", self._px(30), self.custom_font)

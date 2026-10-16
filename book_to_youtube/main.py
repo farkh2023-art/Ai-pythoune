@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import re
 import sys
@@ -20,22 +21,51 @@ import unicodedata
 from pathlib import Path
 
 from config import CONFIG
-from modules import (branding, cleaner, illustrations, ocr, prompts, reader, scripter,
-                     splitter, subtitles, summarizer, titles, tts, uploader, video, visuals)
+from modules import (branding, cleaner, illustrations, languages, ocr, prompts, reader,
+                     scripter, splitter, subtitles, summarizer, titles, translator, tts,
+                     uploader, video, visuals)
 
-DESCRIPTION_LABELS = {
-    "fr": {"episode": "Épisode", "voice": "Narration : voix de synthèse.",
-           "summary": "Résumé du texte original, rédigé avec l'aide d'une IA.", "by": "de",
-           "images": "Illustrations (Wikimedia Commons, licences libres) :"},
-    "en": {"episode": "Episode", "voice": "Narration: synthetic voice.",
-           "summary": "Summary of the original text, written with AI assistance.", "by": "by",
-           "images": "Illustrations (Wikimedia Commons, free licenses):"},
-}
-
-
-def slugify(text: str) -> str:
+def slugify(text: str, default: str = "livre") -> str:
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60] or "livre"
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60] or default
+
+
+def series_slug(title: str, source: str | Path, lang: str, book_lang: str) -> str:
+    """Dossier de la série : titre du livre, plus la langue de la vidéo si elle diffère.
+
+    Un titre sans lettres latines (arabe…) prend le nom du fichier, sinon une empreinte.
+    """
+    base = (slugify(title, "") or slugify(Path(source).stem, "")
+            or "livre-" + hashlib.sha1(title.encode()).hexdigest()[:6])
+    return base if lang == book_lang else f"{base}-{lang}"
+
+
+def book_language(text: str, config: dict) -> tuple[str, bool]:
+    """(langue du livre, traduction nécessaire ?) — détectée si `book_language` = auto."""
+    from modules import claude_client
+
+    declared = config.get("book_language") or "auto"
+    source = languages.detect(text) if declared == "auto" else declared
+    target = config.get("language", "fr")
+    if source == target:
+        return source, False
+    if config.get("translate", True) is False:
+        return source, False
+    if not claude_client.available():
+        print(f"Avertissement : livre en {languages.get(source).name}, vidéo en "
+              f"{languages.get(target).name}, mais sans clé Claude il ne peut pas être "
+              "traduit : il sera lu tel quel.", file=sys.stderr)
+        return source, False
+    return source, True
+
+
+def _drop_progress(folder: Path) -> None:
+    """Dossier provisoire (avant de connaître la langue) : retiré s'il ne contient rien d'autre."""
+    (folder / "progress.json").unlink(missing_ok=True)
+    try:
+        folder.rmdir()
+    except OSError:
+        pass
 
 
 class Progress:
@@ -70,12 +100,31 @@ def main(book_path: str | Path, config: dict | None = None,
 
     book = reader.load_book(book_path)                          # 1. Lecture
     check_has_text(book, config)
-    slug = slugify(book.title)
+    slug = series_slug(book.title, book.source, "", "")
     out_dir = Path(config["output_dir"]) / slug
     out_dir.mkdir(parents=True, exist_ok=True)
     progress = Progress(out_dir / "progress.json", 0, book.title)
     book = ensure_text(book, config, progress=progress)         #    (OCR si scanné)
     texte = cleaner.clean(book.text)                            # 2. Nettoyage
+    # Langue du livre / de la vidéo : si elles diffèrent, Claude traduit, et la
+    # série est distincte (suffixe « -ar », « -en »…) de celle dans la langue du livre.
+    source_lang, translated = book_language(texte, config)
+    series = series_slug(book.title, book.source, config["language"],
+                         source_lang if translated else config["language"])
+    if series != slug:
+        _drop_progress(out_dir)
+        slug, out_dir = series, Path(config["output_dir"]) / series
+        out_dir.mkdir(parents=True, exist_ok=True)
+        progress = Progress(out_dir / "progress.json", 0, book.title)
+    cache_dir = Path(config["episodes_dir"]) / slug
+    if translated:
+        print(f"Livre en {languages.get(source_lang).name}, vidéo en "
+              f"{languages.get(config['language']).name} : traduction par Claude.")
+        if config.get("narration_mode") != "resume":
+            config = {**config, "translated_from": source_lang}
+        (title,) = translator.translate_titles([book.title], config, source=source_lang,
+                                               book_title=book.title, cache_dir=cache_dir)
+        book = dataclasses.replace(book, title=title)
     episodes = splitter.split(texte, config)                    # 3. Découpage
     if not episodes:
         raise SystemExit("Aucun texte exploitable dans ce livre.")
@@ -83,7 +132,16 @@ def main(book_path: str | Path, config: dict | None = None,
     # d'origine reste utilisé pour le résumé (cache inchangé, mêmes scènes).
     split_titles = {ep.number: ep.title for ep in episodes}
     episodes = titles.name_episodes(episodes, config, book_title=book.title,
-                                    cache_dir=Path(config["episodes_dir"]) / slug, log=print)
+                                    cache_dir=cache_dir, log=print)
+    if translated:  # titres de chapitres traduits (les titres proposés le sont déjà)
+        chapters = [ep for ep in episodes if not titles.DEFAULT_TITLE.match(
+            split_titles[ep.number]) and ep.title == split_titles[ep.number]]
+        names = translator.translate_titles([ep.title for ep in chapters], config,
+                                            source=source_lang, book_title=book.title,
+                                            cache_dir=cache_dir)
+        renamed = {ep.number: name for ep, name in zip(chapters, names)}
+        episodes = [dataclasses.replace(ep, title=renamed.get(ep.number, ep.title))
+                    for ep in episodes]
 
     splitter.save(episodes, Path(config["episodes_dir"]) / slug)
     manifest_path = out_dir / "manifest.json"
@@ -92,6 +150,9 @@ def main(book_path: str | Path, config: dict | None = None,
                  "language": config["language"], "playlist_id": None, "episodes": []})
 
     manifest["book"]["source"] = str(book.source)
+    manifest["book"]["title"] = book.title
+    manifest["book"]["language"] = source_lang
+    manifest["language"] = config["language"]
     if build_options is not None:
         manifest["build_options"] = build_options
     channel = branding.load_channel(config)
@@ -121,6 +182,10 @@ def main(book_path: str | Path, config: dict | None = None,
             continue
         started = time.monotonic()
         print(f"[{ep.number}/{total}] {ep.title} — {ep.word_count} mots")
+        if translated and config["narration_mode"] != "resume":
+            progress("traduction", ep.number, ep.title)
+            ep = translator.translate_episode(ep, config, source=source_lang,
+                                              book_title=book.title, cache_dir=cache_dir)
         if config["narration_mode"] == "resume":
             progress("resume", ep.number, ep.title)
             original = ep
@@ -287,7 +352,7 @@ def ensure_text(book: reader.Book, config: dict | None = None, *, client=None,
 
 
 def youtube_title(book_title: str, ep: splitter.Episode, config: dict) -> str:
-    label = DESCRIPTION_LABELS.get(config["language"], DESCRIPTION_LABELS["fr"])["episode"]
+    label = languages.get(config["language"]).labels["episode"]
     title = f"{book_title} — {label} {ep.number} : {ep.title}"
     if len(title) > 100:  # limite YouTube
         title = f"{book_title[:60].rstrip()}… — {label} {ep.number}"
@@ -296,7 +361,7 @@ def youtube_title(book_title: str, ep: splitter.Episode, config: dict) -> str:
 
 def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, config: dict,
                         credits: list[str] | None = None) -> str:
-    labels = DESCRIPTION_LABELS.get(config["language"], DESCRIPTION_LABELS["fr"])
+    labels = languages.get(config["language"]).labels
     excerpt = ep.text.replace("\n\n", " ")
     if len(excerpt) > 300:
         excerpt = excerpt[:300].rsplit(" ", 1)[0] + "…"
@@ -304,6 +369,7 @@ def youtube_description(book: reader.Book, ep: splitter.Episode, total: int, con
     return (f"{book.title}{author} — {labels['episode']} {ep.number}/{total} : {ep.title}\n\n"
             f"{excerpt}\n\n{labels['voice']}"
             + (f" {labels['summary']}" if config.get("narration_mode") == "resume" else "")
+            + (f" {labels['translation']}" if config.get("translated_from") else "")
             + _credits_block(credits or [], labels))
 
 
@@ -346,7 +412,11 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--minutes", type=float, help="durée cible d'un épisode (mode duration)")
     b.add_argument("--max-minutes", type=float, help="durée max d'un chapitre avant redécoupage")
     b.add_argument("--words", type=int, help="nombre de mots par épisode (mode words)")
-    b.add_argument("--lang", choices=["fr", "en"], help="langue de la narration")
+    b.add_argument("--lang", choices=list(languages.CODES),
+                   help="langue de la vidéo (narration, générique, sous-titres) ; si le livre "
+                        "est dans une autre langue, Claude le traduit")
+    b.add_argument("--book-lang", choices=["auto", *languages.CODES],
+                   help="langue du livre (auto = détectée)")
     b.add_argument("--narration", choices=["fidele", "resume"],
                    help="lecture intégrale ou résumé de chaque épisode (Claude)")
     b.add_argument("--summary-minutes", type=float, help="durée visée d'un épisode résumé")
@@ -382,6 +452,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("presentation", help="faire rédiger la présentation du livre par Claude")
     pr.add_argument("book", type=Path)
     pr.add_argument("--force", action="store_true", help="remplacer la présentation existante")
+    pr.add_argument("--lang", choices=list(languages.CODES), help="langue de la vidéo")
 
     for name, help_ in [("status", "état de la série"),
                         ("review", "relecture interactive par le créateur")]:
@@ -405,15 +476,18 @@ def write_presentation(book_path: str | Path, config: dict | None = None,
     """Rédige (ou relit) la présentation du livre et l'enregistre."""
     config = {**CONFIG, **(config or {})}
     book = reader.load_book(book_path)
-    slug = slugify(book.title)
-    if not force and (existing := branding.load_presentation(config, slug)):
-        return existing
     check_has_text(book, config)
     book = ensure_text(book, config, client=client)
+    texte = cleaner.clean(book.text)
+    source, translated = book_language(texte, config)
+    slug = series_slug(book.title, book.source, config["language"],
+                       source if translated else config["language"])
+    if not force and (existing := branding.load_presentation(config, slug)):
+        return existing
     channel = branding.load_channel(config)
     text = branding.generate_presentation(config, book_title=book.title, author=book.author,
-                                          text=cleaner.clean(book.text),
-                                          channel_name=channel.narrated_name, client=client)
+                                          text=texte, channel_name=channel.narrated_name,
+                                          client=client)
     branding.save_presentation(config, slug, text)
     return text
 
@@ -442,7 +516,8 @@ def cli(argv: list[str] | None = None) -> int:
         overrides = {key: value for key, value in {
             "split_mode": args.split, "target_minutes": args.minutes,
             "max_minutes": args.max_minutes, "target_words": args.words,
-            "language": args.lang, "narration_mode": args.narration,
+            "language": args.lang, "book_language": args.book_lang,
+            "narration_mode": args.narration,
             "summary_minutes": args.summary_minutes, "tts_engine": args.tts, "voice": args.voice,
             "tts_rate": args.rate, "visual_style": args.style,
             "scene_seconds": args.scene_seconds, "scene_cut": args.scene_cut,
@@ -464,7 +539,8 @@ def cli(argv: list[str] | None = None) -> int:
              build_options=_reusable_options(argv if argv is not None else sys.argv[1:],
                                              str(args.book)))
     elif args.command == "presentation":
-        print(write_presentation(args.book, force=args.force))
+        print(write_presentation(args.book, {"language": args.lang} if args.lang else None,
+                                 force=args.force))
     elif args.command == "status":
         print(uploader.summary(args.manifest))
     elif args.command == "review":

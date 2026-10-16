@@ -18,10 +18,10 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from . import claude_client
+from . import claude_client, languages
 from .splitter import Episode
 
-DEFAULT_TITLE = re.compile(r"^(?:Partie|Part) \d+$")
+DEFAULT_TITLE = languages.part_titles()
 CACHE_NAME = "titres.json"
 
 _SCHEMA = {
@@ -35,7 +35,7 @@ PROMPTS = {
     "fr": (
         "Tu donnes des titres aux épisodes d'une série YouTube qui raconte un livre.",
         "Livre : « {book} ». Voici ses {n} épisode(s), dans l'ordre.\n\n"
-        "Donne à chaque épisode un titre en français :\n"
+        "Donne à chaque épisode un titre en {langue} :\n"
         "- court : 2 à 6 mots, sans numéro ni guillemets ;\n"
         "- évocateur : le lieu, le personnage ou l'événement central de l'épisode ;\n"
         "- sans reprendre le titre du livre ni révéler la chute de l'épisode ;\n"
@@ -85,11 +85,12 @@ def name_episodes(episodes: list[Episode], config: dict, *, book_title: str,
     enabled = config.get("episode_titles", "auto")
     if missing and enabled != "off" and (client is not None or claude_client.available()):
         lang = config.get("language", "fr")
-        system, template = PROMPTS.get(lang, PROMPTS["fr"])
+        system, template = PROMPTS["en" if lang == "en" else "fr"]
         budget = max(2000, 300_000 // len(missing))
         blocks = "\n\n".join(f"<episode numero=\"{i}\">\n{ep.text[:budget]}\n</episode>"
                              for i, ep in enumerate(missing, 1))
-        prompt = template.format(book=book_title, n=len(missing), episodes=blocks)
+        prompt = template.format(book=book_title, n=len(missing), episodes=blocks,
+                                 langue=languages.get(lang).name)
         try:
             data = claude_client.ask_json(system, prompt, config, _SCHEMA, client,
                                           what="les titres des épisodes")

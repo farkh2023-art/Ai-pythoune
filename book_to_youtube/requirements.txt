@@ -14,6 +14,7 @@ anthropic>=1.13
 
 # Visuels
 Pillow>=10.1
+arabic-reshaper>=3.0  # texte arabe lié, si Pillow n'a pas raqm (souvent sous Termux)
 
 # Publication YouTube (YouTube Data API v3)
 google-api-python-client>=2.100

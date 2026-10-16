@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from config import CONFIG
-from modules import branding, illustrations, prompts, uploader
+from modules import branding, illustrations, languages, prompts, uploader
 from modules.reader import SUPPORTED_EXTENSIONS
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -60,7 +60,7 @@ BUILD_FLAGS = {
     "theme": "--theme", "image_hint": "--image-hint", "resolution": "--resolution",
     "fps": "--fps", "episodes": "--episodes", "max_episodes": "--max-episodes",
     "images": "--images", "image_style": "--image-style", "scene_cut": "--scene-cut",
-    "visuels": "--visuels", "anime_fill": "--anime-fill",
+    "visuels": "--visuels", "anime_fill": "--anime-fill", "book_lang": "--book-lang",
 }
 BUILD_SWITCHES = {"no_zoom": "--no-zoom", "force": "--force"}
 
@@ -214,6 +214,7 @@ def list_series(job: Job | None) -> list[dict]:
             "counts": counts,
             "playlist_id": manifest.get("playlist_id"),
             "build_options": manifest.get("build_options", []),
+            "language": manifest.get("language", CONFIG["language"]),
             "progress": progress if active else None,
             "presentation": branding.load_presentation(CONFIG, slug),
             "images": images,
@@ -259,6 +260,9 @@ def state() -> dict:
         "job": asdict(job) if job else None,
         "jobs": [asdict(j) for j in reversed(RUNNER.jobs[-10:])],
         "env": environment(),
+        "languages": [{"code": lang.code, "native": lang.native, "rtl": lang.rtl,
+                       "voices": lang.voices} for lang in languages.LANGUAGES.values()],
+        "default_language": CONFIG["language"],
     }
 
 
@@ -343,9 +347,11 @@ def action_presentation_draft(body: dict) -> dict:
     if not source.is_file():
         raise FileNotFoundError(f"Livre source introuvable : {source}")
     book = reader.load_book(source)
+    # Présentation dans la langue de la série (une version arabe d'un livre français…).
+    config = {**CONFIG, "language": manifest.get("language", CONFIG["language"])}
     text = branding.generate_presentation(
-        CONFIG, book_title=book.title, author=book.author, text=cleaner.clean(book.text),
-        channel_name=branding.load_channel(CONFIG).narrated_name)
+        config, book_title=manifest["book"].get("title") or book.title, author=book.author,
+        text=cleaner.clean(book.text), channel_name=branding.load_channel(CONFIG).narrated_name)
     return {"text": text}
 
 

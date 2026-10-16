@@ -10,26 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from . import languages
 from .splitter import Episode, split_sentences
-
-TEMPLATES = {
-    "fr": {
-        "welcome": "Bienvenue sur {channel}.",
-        "book": "{book}.",
-        "book_author": "{book}, de {author}.",
-        "episode": "Épisode {number} : {title}.",
-        "outro": "Fin de l'épisode {number}. Merci de votre écoute, à bientôt pour la suite.",
-        "outro_last": "Fin de l'épisode {number}, et fin du livre. Merci de nous avoir suivis.",
-    },
-    "en": {
-        "welcome": "Welcome to {channel}.",
-        "book": "{book}.",
-        "book_author": "{book}, by {author}.",
-        "episode": "Episode {number}: {title}.",
-        "outro": "End of episode {number}. Thanks for listening, see you in the next one.",
-        "outro_last": "End of episode {number}, and the end of the book. Thanks for listening.",
-    },
-}
 
 _ABBREVIATIONS = {
     "fr": {
@@ -80,7 +62,7 @@ def make_script(episode: Episode, config: dict | None = None, *, book_title: str
     """
     config = config or {}
     lang = config.get("language", "fr")
-    tpl = TEMPLATES.get(lang, TEMPLATES["fr"])
+    tpl = languages.get(lang).script
     max_chars = int(config.get("segment_max_chars", 220))
     script = Script(episode=episode)
 
@@ -147,7 +129,7 @@ def _split_long_sentence(sentence: str, max_chars: int) -> list[str]:
         return [sentence]
     # Coupe sur la ponctuation faible, puis sur les espaces en dernier recours.
     pieces, current = [], ""
-    for part in re.split(r"(?<=[,;:])\s+", sentence):
+    for part in re.split(r"(?<=[,;:،؛])\s+", sentence):  # virgule et point-virgule arabes
         while len(part) > max_chars:
             cut = part.rfind(" ", 0, max_chars)
             cut = cut if cut > 0 else max_chars
