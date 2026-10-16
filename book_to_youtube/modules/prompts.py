@@ -46,6 +46,16 @@ _SCHEMA = {
 }
 
 
+def orientation(config: dict) -> str:
+    """Format des images : paysage 16:9, ou portrait 9:16 pour les Shorts."""
+    return ("portrait 9:16 (vertical)" if config.get("video_format") == "short"
+            else "paysage 16:9")
+
+
+def _oriented(text: str, config: dict) -> str:
+    return text.replace("paysage 16:9", orientation(config))
+
+
 def use_claude(config: dict) -> bool:
     mode = config.get("image_prompts", "auto")
     return mode == "claude" or (mode == "auto" and claude_client.available())
@@ -164,7 +174,8 @@ def visual_scene_plan(config: dict, slug: str, episode, segments: list, *, book_
         "logo dans l'image. Évite la violence explicite.\n\n"
         f"<narration>\n{lines}\n</narration>")
     try:
-        data = claude_client.ask_json(system, prompt, config, _CUT_SCHEMA, client,
+        data = claude_client.ask_json(system, _oriented(prompt, config), config, _CUT_SCHEMA,
+                                      client,
                                       what=f"le découpage de l'épisode {episode.number}",
                                       max_tokens=32000)
         by_start: dict[int, str] = {}
@@ -203,8 +214,8 @@ def _excerpt(text: str, limit: int = 350) -> str:
 
 def template_prompt(text: str, config: dict) -> str:
     style = config.get("image_style") or DEFAULT_STYLE
-    return (f"{style}. Scène : {_excerpt(text)} "
-            "Format paysage 16:9, sans texte ni lettrage.")
+    return _oriented(f"{style}. Scène : {_excerpt(text)} "
+                     "Format paysage 16:9, sans texte ni lettrage.", config)
 
 
 def _claude_prompts(texts: list[str], config: dict, book_title: str, author: str | None,
@@ -224,7 +235,7 @@ def _claude_prompts(texts: list[str], config: dict, book_title: str, author: str
         "le sujet principal, le décor, l'éclairage et le cadrage, en reprenant le style imposé "
         "et les descriptions de la bible. Aucun texte, lettrage ni logo dans l'image. Évite la "
         "violence explicite.\n\n" + scenes)
-    data = claude_client.ask_json(system, prompt, config, _SCHEMA, client,
+    data = claude_client.ask_json(system, _oriented(prompt, config), config, _SCHEMA, client,
                                   what=f"les prompts de l'épisode {episode.number}")
     return [str(p).strip() for p in data.get("prompts", [])]
 
@@ -276,7 +287,7 @@ def write_episode_prompts(config: dict, slug: str, episode, texts: list[str], *,
     for sc in scenes:
         lines += [f"Scène {sc['scene']:02d}  →  scene_{sc['scene']:02d}.jpg",
                   f"Texte lu : « {sc['texte']} »", f"Prompt : {sc['prompt']}", ""]
-    (folder / "prompts.txt").write_text("\n".join(lines), encoding="utf-8")
+    (folder / "prompts.txt").write_text(_oriented("\n".join(lines), config), encoding="utf-8")
     return scenes
 
 
@@ -351,7 +362,8 @@ def write_motion_prompts(config: dict, slug: str, episode, scenes: list[dict], *
         lines += [f"Scène {sc['scene']:02d}  →  scene_{sc['scene']:02d}.mp4",
                   f"Texte lu : « {sc.get('texte', sc['extrait'])} »",
                   f"Animation : {motion}", ""]
-    (folder / "prompts_animation.txt").write_text("\n".join(lines), encoding="utf-8")
+    (folder / "prompts_animation.txt").write_text(_oriented("\n".join(lines), config),
+                                                  encoding="utf-8")
     return motions
 
 

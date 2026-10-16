@@ -274,7 +274,14 @@ class SlideRenderer:
         self.accent = tuple(config.get("accent_color", (255, 196, 87)))
         self.custom_font = config.get("font_path")
         self.base = _background(config, self.size)
-        self.unit = self.size[1] / 1080  # facteur d'échelle selon la résolution
+        # Facteur d'échelle selon la résolution (petit côté : marche aussi en vertical).
+        self.unit = min(self.size) / 1080
+        # Short (YouTube Shorts, vertical 9:16) : la question reste affichée en haut,
+        # les sous-titres sont plus grands et placés dans la zone visible de l'application.
+        self.short = config.get("video_format") == "short"
+        self.single = config.get("split_mode") == "single"  # une seule vidéo : pas de n°
+        from .curiosity import question_of
+        self.question = question_of(episode_title)
 
     def _px(self, value: float) -> int:
         return max(1, round(value * self.unit))
@@ -296,13 +303,36 @@ class SlideRenderer:
             x += logo.width + self._px(14)
         return x
 
+    def _short_header(self, img: Image.Image) -> Image.Image:
+        """Short : la question en grand, en haut, sur un panneau sombre (sous l'interface)."""
+        w, h = self.size
+        draw = _canvas(img)
+        font, lines, lh = _fit_text(draw, self.question, "bold", w - self._px(160),
+                                    self._px(330), self._px(68), self._px(40), self.custom_font)
+        top = round(h * 0.09)
+        widest = max(draw.textlength(line, font=font) for line in lines)
+        pad_x, pad_y = self._px(36), self._px(26)
+        layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(layer).rounded_rectangle(
+            (w / 2 - widest / 2 - pad_x, top - pad_y, w / 2 + widest / 2 + pad_x,
+             top + len(lines) * lh + pad_y), radius=self._px(26), fill=(0, 0, 0, 165))
+        mode = img.mode
+        img = Image.alpha_composite(img.convert("RGBA"), layer)
+        img = img if mode == "RGBA" else img.convert(mode)
+        _draw_block(_canvas(img), lines, font, lh, top + len(lines) * lh / 2, w, self.accent)
+        return img
+
     def _frame(self, progress: float | None) -> tuple[Image.Image, ImageDraw.ImageDraw]:
         img = self.base.copy()
-        draw = _canvas(img)
         w, h = self.size
-        header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
-        draw.text((self._header_x(img), self._px(50)), header,
-                  font=_font("bold", self._px(30), self.custom_font), fill=self.accent)
+        if self.short:
+            img = self._short_header(img)
+        draw = _canvas(img)
+        if not self.short:
+            header = (self.book_title if self.single
+                  else f"{self.book_title}  ·  {self.labels['episode']} {self.number}")
+            draw.text((self._header_x(img), self._px(50)), header,
+                      font=_font("bold", self._px(30), self.custom_font), fill=self.accent)
         if progress is not None:
             bar_y, bar_h = h - self._px(14), self._px(6)
             draw.rectangle((0, bar_y, w, bar_y + bar_h), fill=(70, 70, 90))
@@ -365,13 +395,15 @@ class SlideRenderer:
             bright = tuple(round(c * 0.96) for c in self.text_color)
             blocks[-1] = (*blocks[-1][:3], self._px(40))
             blocks.append(("panel", (lines, font, lh, bright), len(lines) * lh, 0))
-        blocks[-1] = (*blocks[-1][:3], self._px(64 if blocks[-1][0] == "panel" else 40))
-        font = _font("bold", self._px(40), self.custom_font)
-        blocks.append(("line", (f"{self.labels['episode']} {self.number}", font, self.accent),
-                       self._px(52), self._px(6)))
-        font, lines, lh = _fit_text(draw, self.title, "bold", w - self._px(300), self._px(150),
-                                    self._px(58), self._px(30), self.custom_font)
-        blocks.append(("text", (lines, font, lh, self.text_color), len(lines) * lh, 0))
+        if not self.single:
+            blocks[-1] = (*blocks[-1][:3], self._px(64 if blocks[-1][0] == "panel" else 40))
+            font = _font("bold", self._px(40), self.custom_font)
+            blocks.append(("line", (f"{self.labels['episode']} {self.number}", font,
+                                    self.accent), self._px(52), self._px(6)))
+            font, lines, lh = _fit_text(draw, self.title, "bold", w - self._px(300),
+                                        self._px(150), self._px(58), self._px(30),
+                                        self.custom_font)
+            blocks.append(("text", (lines, font, lh, self.text_color), len(lines) * lh, 0))
 
         total = sum(b[2] + b[3] for b in blocks)
         y = max(self._px(100), (h - total) / 2)
@@ -411,21 +443,33 @@ class SlideRenderer:
         _draw_block(draw, lines, font, lh, h / 2, w, self.text_color)
         return img
 
+    def _caption_box(self, draw, text: str) -> tuple:
+        """Police, lignes, interligne, hauteur et haut du bandeau de sous-titre."""
+        w, h = self.size
+        if self.short:  # plus grand, au-dessus des boutons de l'application Shorts
+            font, lines, lh = _fit_text(draw, text, "bold", w - self._px(140), self._px(420),
+                                        self._px(60), self._px(38), self.custom_font)
+            box_h = len(lines) * lh + self._px(60)
+            return font, lines, lh, box_h, round(h * 0.64 - box_h / 2)
+        font, lines, lh = _fit_text(draw, text, "bold", w - self._px(260), self._px(230),
+                                    self._px(44), self._px(26), self.custom_font)
+        box_h = len(lines) * lh + self._px(50)
+        return font, lines, lh, box_h, h - self._px(60) - box_h
+
     def card_slide(self, text: str, progress: float) -> Image.Image:
         img, draw = self._frame(progress)
         w, h = self.size
-        font, lines, lh = _fit_text(draw, self.title, "bold", w - self._px(300),
-                                    self._px(300), self._px(80), self._px(36), self.custom_font)
-        _draw_block(draw, lines, font, lh, h * 0.38, w, self.text_color)
+        if not self.short:  # en Short, la question est déjà affichée en haut
+            font, lines, lh = _fit_text(draw, self.title, "bold", w - self._px(300),
+                                        self._px(300), self._px(80), self._px(36),
+                                        self.custom_font)
+            _draw_block(draw, lines, font, lh, h * 0.38, w, self.text_color)
         # Bandeau de sous-titre semi-transparent.
-        sub_font, sub_lines, sub_lh = _fit_text(draw, text, "bold", w - self._px(260),
-                                                self._px(230), self._px(44), self._px(26),
-                                                self.custom_font)
-        box_h = len(sub_lines) * sub_lh + self._px(50)
-        box_top = h - self._px(60) - box_h
+        sub_font, sub_lines, sub_lh, box_h, box_top = self._caption_box(draw, text)
         overlay = Image.new("RGBA", self.size, (0, 0, 0, 0))
+        margin = self._px(50 if self.short else 100)
         ImageDraw.Draw(overlay).rounded_rectangle(
-            (self._px(100), box_top, w - self._px(100), box_top + box_h),
+            (margin, box_top, w - margin, box_top + box_h),
             radius=self._px(18), fill=(0, 0, 0, 165))
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
         _draw_block(_canvas(img), sub_lines, sub_font, sub_lh,
@@ -435,6 +479,15 @@ class SlideRenderer:
     def end_slide(self, last: bool) -> Image.Image:
         img, draw = self._frame(1.0)
         w, h = self.size
+        if self.short:  # grand « ? » et invitation à s'abonner
+            draw.text((w / 2, h * 0.46), "?", font=_font("bold", self._px(320),
+                                                         self.custom_font),
+                      fill=self.accent, anchor="mm")
+            font, lines, lh = _fit_text(draw, self.labels["subscribe"], "bold",
+                                        w - self._px(160), self._px(260), self._px(70),
+                                        self._px(40), self.custom_font)
+            _draw_block(draw, lines, font, lh, h * 0.64, w, self.text_color)
+            return img
         draw.text((w / 2, h / 2), self.labels["end" if last else "next"],
                   font=_font("bold", self._px(90), self.custom_font),
                   fill=self.accent, anchor="mm")
@@ -454,9 +507,18 @@ class OverlayRenderer(SlideRenderer):
     def _frame(self, progress):
         veil = {True: self.VEIL, "fort": (0, 0, 0, 200)}.get(self._veil, (0, 0, 0, 0))
         img = Image.new("RGBA", self.size, veil)
-        draw = _canvas(img)
         w, h = self.size
-        header = f"{self.book_title}  ·  {self.labels['episode']} {self.number}"
+        if self.short:
+            img = self._short_header(img)
+            draw = _canvas(img)
+            if progress is not None:
+                bar_y, bar_h = h - self._px(14), self._px(6)
+                draw.rectangle((0, bar_y, w, bar_y + bar_h), fill=(0, 0, 0, 120))
+                draw.rectangle((0, bar_y, round(w * progress), bar_y + bar_h), fill=self.accent)
+            return img, draw
+        draw = _canvas(img)
+        header = (self.book_title if self.single
+                  else f"{self.book_title}  ·  {self.labels['episode']} {self.number}")
         font = _font("bold", self._px(30), self.custom_font)
         x, y = self._px(60), self._px(50)
         logo = self._logo(self._px(120), self._px(46))
@@ -499,11 +561,9 @@ class OverlayRenderer(SlideRenderer):
     def caption_slide(self, text: str, progress: float) -> Image.Image:
         img, draw = self._frame(progress)
         w, h = self.size
-        font, lines, lh = _fit_text(draw, text, "bold", w - self._px(260), self._px(230),
-                                    self._px(44), self._px(26), self.custom_font)
-        box_h = len(lines) * lh + self._px(50)
-        box_top = h - self._px(60) - box_h
-        draw.rounded_rectangle((self._px(100), box_top, w - self._px(100), box_top + box_h),
+        font, lines, lh, box_h, box_top = self._caption_box(draw, text)
+        margin = self._px(50 if self.short else 100)
+        draw.rounded_rectangle((margin, box_top, w - margin, box_top + box_h),
                                radius=self._px(18), fill=(0, 0, 0, 170))
         _draw_block(draw, lines, font, lh, box_top + box_h / 2, w, (255, 255, 255))
         return img
@@ -616,7 +676,7 @@ def thumbnail(path: str | Path, config: dict, *, book_title: str, episode_number
               episode_title: str, background: str | Path | None = None,
               branding: dict | None = None) -> Path:
     """Miniature YouTube 1280×720 : logo, livre et épisode (sur l'illustration si fournie)."""
-    cfg = {**config, "resolution": (1280, 720)}
+    cfg = {**config, "resolution": (1280, 720), "video_format": "standard"}
     if background:
         cfg["background_image"] = background
     renderer = SlideRenderer(cfg, book_title, episode_number, episode_title, **(branding or {}))

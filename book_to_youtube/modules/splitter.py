@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .cleaner import HEADING
+from .cleaner import is_heading
 
 # Fin de phrase (. ! ? … et le point d'interrogation arabe ؟) suivie d'une majuscule,
 # ou de n'importe quelle lettre arabe (l'arabe n'a pas de majuscules).
@@ -56,6 +56,12 @@ def split(text: str, config: dict) -> list[Episode]:
     if not paragraphs:
         return []
 
+    if mode == "single":
+        # Tout le livre en une seule vidéo (ex. les 4 questions d'un mot-clé) ; les
+        # titres de chapitres ne sont pas lus (chaque question s'annonce elle-même).
+        body = [p for p in paragraphs if not is_heading(p)]
+        title = config.get("single_title") or _default_title("\n\n".join(body), 1, config)
+        return [Episode(number=1, title=title, text="\n\n".join(body))]
     if mode == "words":
         target = int(config.get("target_words", 1500))
     elif mode in ("duration", "chapter"):
@@ -92,12 +98,12 @@ def split(text: str, config: dict) -> list[Episode]:
 
 
 def _chapters(paragraphs: list[str]) -> list[tuple[str | None, list[str]]]:
-    """Regroupe les paragraphes par chapitre (titre détecté par HEADING)."""
+    """Regroupe les paragraphes par chapitre (titre détecté par cleaner.is_heading)."""
     sections: list[tuple[str | None, list[str]]] = []
     title: str | None = None
     body: list[str] = []
     for para in paragraphs:
-        if HEADING.match(para) and len(para) < 100:
+        if is_heading(para):
             if body:
                 sections.append((title, body))
             elif title is not None and _is_bare_label(title):

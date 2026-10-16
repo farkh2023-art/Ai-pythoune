@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".docx", ".txt", ".md"}
+SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".docx", ".txt", ".md", ".json"}
 
 
 @dataclass
@@ -45,6 +45,7 @@ def load_book(path: str | Path) -> Book:
         ".docx": _load_docx,
         ".txt": _load_txt,
         ".md": _load_txt,
+        ".json": _load_curiosity,
     }[ext]
     text, meta = loader(path)
     title = (meta.get("title") or "").strip() or _title_from_filename(path)
@@ -55,6 +56,15 @@ def load_book(path: str | Path) -> Book:
 def _title_from_filename(path: Path) -> str:
     name = re.sub(r"[_\-]+", " ", path.stem).strip()
     return name[:1].upper() + name[1:] if name else "Livre"
+
+
+def _load_curiosity(path: Path) -> tuple[str, dict]:
+    """Questions « Savez-vous pourquoi… ??? » (fichier *.curiosite.json)."""
+    from . import curiosity
+
+    if not curiosity.is_curiosity(path):
+        raise ValueError(f"{path.name} : seuls les fichiers « *{curiosity.SUFFIX} » sont lus.")
+    return curiosity.to_book(curiosity.load(path))
 
 
 def _load_txt(path: Path) -> tuple[str, dict]:

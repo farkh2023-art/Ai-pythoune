@@ -288,6 +288,39 @@ python main.py build data/input/livre.pdf --style illustre --theme "veld Afrique
 - Les images et les recherches sont gardées dans `data/images/commons/` :
   relancer une génération ne retélécharge rien.
 
+### « Savez-vous pourquoi… ??? » : Shorts et vidéos de curiosité
+
+Un **mot-clé** au lieu d'un livre. Claude écrit 4 questions, une par angle :
+**pourquoi**, **le saviez-vous**, **comment**, **qu'est-ce que**. Chacune a son script
+d'environ 45 s (la question en accroche, la réponse, un détail surprenant, une invitation à
+commenter), un titre YouTube, 3 hashtags et **ce qu'il faut vérifier** avant de publier.
+
+```bash
+python main.py curiosite "sommeil" --domaine "santé et corps humain" --lang fr
+# → data/input/sommeil-fr.curiosite.json (à relire et corriger)
+python main.py build data/input/sommeil-fr.curiosite.json --format short --style illustre
+python main.py build data/input/sommeil-fr.curiosite.json --split single --style illustre
+```
+
+- `--format short` : **4 Shorts verticaux 9:16** (1080×1920, ou 720×1280 avec
+  `--resolution 1280x720`), un par question, sans générique (la question s'affiche en
+  haut dès la première seconde), sous-titres en grand dans la zone visible, fin « Abonnez-vous ».
+  Titre YouTube avec `#Shorts`, hashtags dans la description, série distincte « …-short ».
+  Les prompts d'images demandent des images **portrait 9:16**.
+- `--split single` : **une vidéo longue 16:9** qui enchaîne les 4 questions, avec le
+  générique de la chaîne.
+- Version arabe : `--lang ar` sur le même fichier (Claude traduit questions et scripts), ou
+  `curiosite "النوم" --lang ar` pour des questions écrites directement en arabe.
+
+Dans le tableau de bord : carte **Savez-vous pourquoi… ???** (mot-clé, domaine, langue),
+puis **Questions…** sur le fichier pour relire et corriger, puis **Générer…** avec
+« Format : Short » ou « Découpage : Une seule vidéo ».
+
+**Exactitude.** Claude doit s'en tenir aux faits établis, présenter les légendes comme
+telles et ne pas donner de conseil médical, mais **relisez toujours** : la ligne
+« À vérifier » de chaque question dit quoi contrôler et où. Un exemple relu est fourni :
+`exemples/sommeil-fr.curiosite.json` (copiez-le dans `data/input/`).
+
 ### Langues (multilingue)
 
 La vidéo peut être en **français, anglais, arabe, espagnol, allemand, italien ou

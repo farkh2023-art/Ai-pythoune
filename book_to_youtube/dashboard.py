@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from config import CONFIG
-from modules import branding, illustrations, languages, prompts, uploader
+from modules import branding, curiosity, illustrations, languages, prompts, uploader
 from modules.reader import SUPPORTED_EXTENSIONS
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -61,6 +61,7 @@ BUILD_FLAGS = {
     "fps": "--fps", "episodes": "--episodes", "max_episodes": "--max-episodes",
     "images": "--images", "image_style": "--image-style", "scene_cut": "--scene-cut",
     "visuels": "--visuels", "anime_fill": "--anime-fill", "book_lang": "--book-lang",
+    "format": "--format",
 }
 BUILD_SWITCHES = {"no_zoom": "--no-zoom", "force": "--force"}
 
@@ -215,6 +216,7 @@ def list_series(job: Job | None) -> list[dict]:
             "playlist_id": manifest.get("playlist_id"),
             "build_options": manifest.get("build_options", []),
             "language": manifest.get("language", CONFIG["language"]),
+            "short": slug.endswith("-short"),
             "progress": progress if active else None,
             "presentation": branding.load_presentation(CONFIG, slug),
             "images": images,
@@ -381,6 +383,45 @@ def action_delete_scene_image(body: dict) -> dict:
     return {"scenes": scenes_for(slug, number)}
 
 
+def action_curiosity(body: dict) -> dict:
+    """« Savez-vous pourquoi… ??? » : Claude écrit les 4 questions du mot-clé."""
+    import main
+    from modules import claude_client
+
+    keyword = str(body.get("keyword", "")).strip()[:80]
+    if not keyword:
+        raise ValueError("Indiquez un mot-clé.")
+    if not claude_client.available():
+        raise ValueError("Clé API Anthropic absente : lancez « export ANTHROPIC_API_KEY=… » "
+                         "avant « python dashboard.py ».")
+    lang = body.get("lang") if body.get("lang") in languages.CODES else CONFIG["language"]
+    path = main.write_curiosity(keyword, str(body.get("domain", "")).strip()[:120], lang,
+                                log=lambda *_: None)
+    return {"name": path.name, **curiosity.load(path)}
+
+
+def _curiosity_path(name: str) -> Path:
+    path = _book_path(name)
+    if not curiosity.is_curiosity(path):
+        raise ValueError("Ce fichier n'est pas une liste de questions.")
+    return path
+
+
+def action_curiosity_save(body: dict) -> dict:
+    """Questions relues et corrigées par le créateur."""
+    path = _curiosity_path(body.get("name", ""))
+    data = curiosity.load(path)
+    if body.get("titre"):
+        data["titre"] = str(body["titre"]).strip()[:120]
+    edits = body.get("questions") or []
+    for question, edit in zip(data["questions"], edits):
+        for key, limit in (("question", 200), ("script", 3000), ("titre_youtube", 100)):
+            if isinstance(edit.get(key), str) and edit[key].strip():
+                question[key] = edit[key].strip()[:limit]
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"name": path.name, **data}
+
+
 def action_delete_series(body: dict) -> dict:
     """Supprime une série : vidéos, textes, voix, images et prompts (pas YouTube)."""
     slug = _series_slug(body.get("slug", ""))
@@ -531,6 +572,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(state())
             if url.path == "/api/log":
                 return self._json(read_log(query["id"][0], int(query.get("offset", ["0"])[0])))
+            if url.path == "/api/curiosity":
+                path = _curiosity_path(query["name"][0])
+                return self._json({"name": path.name, **curiosity.load(path)})
             if url.path == "/api/scenes":
                 return self._json({"scenes": scenes_for(query["slug"][0],
                                                         int(query["episode"][0]))})
@@ -595,6 +639,8 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/scene-image-delete": lambda: action_delete_scene_image(body),
                 "/api/scene-clip-delete": lambda: action_delete_scene_clip(body),
                 "/api/delete-series": lambda: action_delete_series(body),
+                "/api/curiosity": lambda: action_curiosity(body),
+                "/api/curiosity-save": lambda: action_curiosity_save(body),
                 "/api/build": lambda: asdict(action_build(body)),
                 "/api/regenerate": lambda: asdict(action_regenerate(body)),
                 "/api/publish": lambda: asdict(action_publish(body)),

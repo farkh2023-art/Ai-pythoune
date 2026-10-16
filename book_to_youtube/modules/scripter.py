@@ -70,7 +70,9 @@ def make_script(episode: Episode, config: dict | None = None, *, book_title: str
         welcome = tpl["welcome"].format(channel=channel_name) if channel_name else ""
         book = tpl["book_author" if author else "book"].format(
             book=book_title or episode.title, author=author)
-        announce = tpl["episode"].format(number=episode.number, title=episode.title)
+        # Une seule vidéo (--split single) : pas de « Épisode 1 : … » à annoncer.
+        announce = ("" if config.get("split_mode") == "single"
+                    else tpl["episode"].format(number=episode.number, title=episode.title))
         presentation = prepare_for_speech(presentation, lang) if (
             presentation and config.get("read_presentation", True)) else ""
         if presentation:
@@ -89,9 +91,9 @@ def make_script(episode: Episode, config: dict | None = None, *, book_title: str
 
     if config.get("add_outro", True):
         last = total_episodes is not None and episode.number >= total_episodes
-        script.segments.append(
-            Segment(tpl["outro_last" if last else "outro"].format(number=episode.number), "outro")
-        )
+        key = ("outro_short" if config.get("video_format") == "short"
+               else "outro_last" if last else "outro")
+        script.segments.append(Segment(tpl[key].format(number=episode.number), "outro"))
     return script
 
 
