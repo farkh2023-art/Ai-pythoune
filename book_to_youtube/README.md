@@ -232,6 +232,35 @@ découpage ; `--scene-cut claude` (ou « Visuel par Claude, même si des images 
 dans le tableau de bord) le redécoupe, et il faut alors refaire ses images.
 `--scene-cut duree` revient au découpage fixe.
 
+### Scènes animées (option-anime)
+
+Deux options pour les visuels des scènes :
+
+- **option-images** (`--visuels images`, par défaut) : une image fixe par scène, avec
+  zoom lent ou non ;
+- **option-anime** (`--visuels anime`) : chaque scène peut recevoir un **clip animé** que
+  vous générez vous-même, plus tard, dans un générateur image→vidéo (Kling, Runway, Veo,
+  Hailuo, Luma…). L'application ne génère pas les animations : elle prépare les prompts et
+  monte vos clips.
+
+Les scènes sont les mêmes dans les deux options : on peut commencer avec des images, puis
+animer les scènes une à une. En option-anime :
+
+1. `--prompts-only` (ou **Préparer les images…**) écrit en plus, dans le dossier de
+   chaque épisode, `prompts_animation.txt` : un prompt de mouvement par scène (caméra,
+   mouvement du sujet, ambiance, ~5 s), rédigé par Claude à partir du texte lu et du
+   prompt de l'image ;
+2. créez l'image de la scène (`prompts.txt`), puis animez-la avec ce prompt ;
+3. déposez le clip sous le nom `scene_01.mp4` (MP4, MOV, WEBM ou MKV) à côté de
+   `scene_01.jpg`, ou utilisez **Ajouter un clip** dans la fenêtre **Images** du
+   tableau de bord ;
+4. générez avec `--visuels anime`.
+
+Chaque clip est recadré en 16:9, sa bande-son est ignorée, et s'il est plus court que sa
+scène il est rejoué en **aller-retour** (sans saut visible, par défaut), en **boucle**,
+ou **figé** sur sa dernière image (`--anime-fill`). Une scène sans clip garde son image,
+avec ou sans zoom.
+
 ### Style illustré (images libres de droits)
 
 Avec `--style illustre`, chaque épisode est découpé en scènes d'environ 40 s

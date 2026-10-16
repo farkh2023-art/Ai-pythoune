@@ -153,6 +153,13 @@ def main(book_path: str | Path, config: dict | None = None,
                 given=scene_prompts)
             mine = sum(1 for sc in scenes_info if illustrations.user_image(user_dir, sc["scene"]))
             print(f"    scènes : {len(scenes_info)} (vos images : {mine}) — {user_dir}")
+            if config.get("visual_mode") == "anime":                    # option « anime »
+                prompts.write_motion_prompts(config, slug, ep, scenes_info,
+                                             book_title=book.title, bible=bible, log=print)
+                clips = sum(1 for sc in scenes_info
+                            if illustrations.user_clip(user_dir, sc["scene"]))
+                print(f"    animations : {clips}/{len(scenes_info)} clip(s) déposé(s) — "
+                      f"prompts dans {user_dir / 'prompts_animation.txt'}")
         if prompts_only:
             progress("termine", ep.number, ep.title)
             continue
@@ -168,20 +175,24 @@ def main(book_path: str | Path, config: dict | None = None,
         if config["visual_style"] == "illustre":                           # 6. Visuels
             progress("illustrations", ep.number, ep.title)
             scenes = illustrations.plan_scenes(audio.timings, scene_ranges)
+            n_clips = (illustrations.attach_clips(scenes, user_dir)
+                       if config.get("visual_mode") == "anime" else 0)
             illustrations.illustrate(scenes, config, Path(config["images_dir"]) / "commons",
                                      log=print, user_dir=user_dir)
             n_images = len({s.illustration.path for s in scenes if s.illustration})
             n_mine = sum(1 for s in scenes if illustrations.user_image(user_dir, s.number))
             print(f"    illustrations : {n_images} image(s) pour {len(scenes)} scène(s), "
                   f"{n_mine} scène(s) avec votre image"
-                  + ("" if n_images else " — aucune trouvée, fond uni utilisé"))
+                  + ("" if n_images or n_clips else " — aucune trouvée, fond uni utilisé"))
+            if config.get("visual_mode") == "anime":
+                print(f"    animations : {n_clips} scène(s) animée(s) sur {len(scenes)}")
             progress("visuels", ep.number, ep.title)
             overlays = visuals.generate_overlays(script, audio.timings, images_dir, config,
                                                  book_title=book.title, last_episode=last,
                                                  branding=brand)
             fallback = visuals.plain_background(images_dir / "fond.jpg", config)
             progress("montage", ep.number, ep.title)
-            if config["ken_burns"]:                                         # 7. Montage
+            if config["ken_burns"] or n_clips:                              # 7. Montage
                 video.assemble_illustrated(audio.path, scenes, overlays, video_path,
                                            config, images_dir, fallback)
             else:
@@ -190,6 +201,9 @@ def main(book_path: str | Path, config: dict | None = None,
                 video.assemble(audio.path, slides, video_path, config)
             credits = illustrations.credits(scenes)
             cover = next((s.illustration.path for s in scenes if s.illustration), None)
+            if cover is None and n_clips:  # tout animé : miniature tirée du premier clip
+                cover = video.clip_frame(next(s.clip for s in scenes if s.clip),
+                                         images_dir / "miniature_clip.jpg")
         else:
             progress("visuels", ep.number, ep.title)
             slides = visuals.generate(script, audio.timings, images_dir, config,
@@ -342,6 +356,11 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--style", choices=["slides", "card", "illustre"],
                    help="style visuel (illustre : images Wikimedia Commons + zoom lent)")
     b.add_argument("--scene-seconds", type=float, help="durée d'une scène illustrée (s)")
+    b.add_argument("--visuels", choices=["images", "anime"],
+                   help="option-images (images fixes) ou option-anime (vos clips animés "
+                        "par scène, image sinon)")
+    b.add_argument("--anime-fill", choices=["aller-retour", "boucle", "fige"],
+                   help="clip plus court que sa scène : aller-retour, boucle ou image figée")
     b.add_argument("--scene-cut", choices=["auto", "claude", "duree"],
                    help="découpage des scènes : visuel par Claude (auto si clé) ou par durée")
     b.add_argument("--no-zoom", action="store_true",
@@ -427,6 +446,7 @@ def cli(argv: list[str] | None = None) -> int:
             "summary_minutes": args.summary_minutes, "tts_engine": args.tts, "voice": args.voice,
             "tts_rate": args.rate, "visual_style": args.style,
             "scene_seconds": args.scene_seconds, "scene_cut": args.scene_cut,
+            "visual_mode": args.visuels, "anime_fill": args.anime_fill,
             "illustration_theme": args.theme,
             "illustration_hint": args.image_hint, "illustration_source": args.images,
             "image_style": args.image_style,

@@ -83,6 +83,12 @@ CONFIG = {
     # Découpage des scènes : "auto" = visuel par Claude si une clé est configurée
     # (nouvelle scène quand ce qu'on voit change), "claude" = forcé, "duree" = fixe.
     "scene_cut": "auto",
+    # Visuels des scènes : "images" (option-images : images fixes) ou "anime"
+    # (option-anime : vos clips scene_NN.mp4, générés à partir des prompts d'animation ;
+    # une scène sans clip garde son image).
+    "visual_mode": "images",
+    "anime_fill": "aller-retour",  # clip plus court que la scène : aller-retour, boucle, fige
+    "anime_clip_seconds": 5,  # durée visée des clips (prompts d'animation)
     "scene_min_seconds": 8,  # bornes visées du découpage visuel
     "scene_max_seconds": 30,
     "ken_burns": True,  # zoom / travelling lent sur les illustrations (plus lent à monter)

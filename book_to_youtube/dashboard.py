@@ -45,7 +45,11 @@ LOG_DIR = Path(CONFIG["data_dir"]) / "logs"
 MEDIA_TYPES = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".srt": "text/plain; charset=utf-8"}
 IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
-               ".md": "text/markdown; charset=utf-8"}
+               ".md": "text/markdown; charset=utf-8",
+               # clips de l'option « anime »
+               ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+               ".mkv": "video/x-matroska"}
+CLIP_MAX_BYTES = 300_000_000
 
 # Options du formulaire « Générer » -> options de `main.py build`.
 BUILD_FLAGS = {
@@ -56,6 +60,7 @@ BUILD_FLAGS = {
     "theme": "--theme", "image_hint": "--image-hint", "resolution": "--resolution",
     "fps": "--fps", "episodes": "--episodes", "max_episodes": "--max-episodes",
     "images": "--images", "image_style": "--image-style", "scene_cut": "--scene-cut",
+    "visuels": "--visuels", "anime_fill": "--anime-fill",
 }
 BUILD_SWITCHES = {"no_zoom": "--no-zoom", "force": "--force"}
 
@@ -196,7 +201,8 @@ def list_series(job: Job | None) -> list[dict]:
             scenes = prompts.scene_status(CONFIG, slug, number)
             if scenes:
                 images[number] = {"scenes": len(scenes),
-                                  "mine": sum(1 for sc in scenes if sc["fichier"])}
+                                  "mine": sum(1 for sc in scenes if sc["fichier"]),
+                                  "clips": sum(1 for sc in scenes if sc.get("clip"))}
         series.append({
             "slug": slug,
             "title": manifest["book"].get("title", slug),
@@ -346,12 +352,20 @@ def action_presentation_draft(body: dict) -> dict:
 def scenes_for(slug: str, number: int) -> list[dict]:
     _series_slug(slug)
     scenes = prompts.scene_status(CONFIG, slug, number)
+    folder = illustrations.episode_dir(CONFIG, slug, number)
     for sc in scenes:
-        if sc["fichier"]:
-            stamp = int((illustrations.episode_dir(CONFIG, slug, number) / sc["fichier"])
-                        .stat().st_mtime)
-            sc["url"] = f"/illus/{slug}/episode_{number:03d}/{sc['fichier']}?v={stamp}"
+        for key, url_key in (("fichier", "url"), ("clip", "clip_url")):
+            if sc.get(key):
+                stamp = int((folder / sc[key]).stat().st_mtime)
+                sc[url_key] = f"/illus/{slug}/episode_{number:03d}/{sc[key]}?v={stamp}"
     return scenes
+
+
+def action_delete_scene_clip(body: dict) -> dict:
+    slug, number, scene = _series_slug(body["slug"]), int(body["episode"]), int(body["scene"])
+    prompts.delete_scene_clip(CONFIG, slug, number, scene)
+    prompts.write_book_index(CONFIG, slug, _book_title(slug))
+    return {"scenes": scenes_for(slug, number)}
 
 
 def action_delete_scene_image(body: dict) -> dict:
@@ -558,6 +572,14 @@ class Handler(BaseHTTPRequestHandler):
                                          self._raw_body(25_000_000), suffix)
                 prompts.write_book_index(CONFIG, slug, _book_title(slug))
                 return self._json({"scenes": scenes_for(slug, number)})
+            if url.path == "/api/scene-clip":
+                slug = _series_slug(query["slug"][0])
+                number, scene = int(query["episode"][0]), int(query["scene"][0])
+                target = prompts.save_scene_clip(CONFIG, slug, number, scene,
+                                                 Path(query.get("name", [""])[0]).suffix)
+                self._receive_to_file(target, CLIP_MAX_BYTES)
+                prompts.write_book_index(CONFIG, slug, _book_title(slug))
+                return self._json({"scenes": scenes_for(slug, number)})
             body = self._body()
             routes = {
                 "/api/prompts": lambda: asdict(action_prompts(body)),
@@ -565,6 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/presentation": lambda: action_presentation(body),
                 "/api/presentation-draft": lambda: action_presentation_draft(body),
                 "/api/scene-image-delete": lambda: action_delete_scene_image(body),
+                "/api/scene-clip-delete": lambda: action_delete_scene_clip(body),
                 "/api/delete-series": lambda: action_delete_series(body),
                 "/api/build": lambda: asdict(action_build(body)),
                 "/api/regenerate": lambda: asdict(action_regenerate(body)),
@@ -584,6 +607,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(str(err) or err.__class__.__name__)
         except Exception as err:  # erreur de l'API Claude, réseau…
             return self._error(f"{err.__class__.__name__} : {err}", HTTPStatus.BAD_GATEWAY)
+
+    def _receive_to_file(self, target: Path, limit: int) -> None:
+        """Gros fichier (clip vidéo) écrit par morceaux, sans tout garder en mémoire."""
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > limit:
+            raise ValueError(f"Fichier trop volumineux (maximum {limit // 1_000_000} Mo).")
+        partial = target.with_name(target.name + ".part")
+        received = 0
+        with open(partial, "wb") as out:
+            while received < length:
+                chunk = self.rfile.read(min(1 << 20, length - received))
+                if not chunk:
+                    break
+                out.write(chunk)
+                received += len(chunk)
+        if received != length or not length:
+            partial.unlink(missing_ok=True)
+            raise ValueError("Envoi interrompu.")
+        partial.replace(target)
 
     def _raw_body(self, limit: int) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)

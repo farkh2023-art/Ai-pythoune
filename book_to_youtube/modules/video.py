@@ -81,6 +81,17 @@ def probe_duration(path: str | Path) -> float:
     return float(result.stdout.strip())
 
 
+def clip_frame(clip: str | Path, out: str | Path, at: float = 1.0) -> Path | None:
+    """Une image d'un clip (miniature d'une scène animée)."""
+    out = Path(out)
+    result = subprocess.run([check_ffmpeg(), "-y", "-loglevel", "error", "-ss", f"{at:.2f}",
+                             "-i", str(clip), "-frames:v", "1", "-q:v", "3", str(out)])
+    if result.returncode != 0 or not out.exists():
+        result = subprocess.run([check_ffmpeg(), "-y", "-loglevel", "error", "-i", str(clip),
+                                 "-frames:v", "1", "-q:v", "3", str(out)])
+    return out if out.exists() else None
+
+
 def _escape(path: Path) -> str:
     return str(path).replace("\\", "/").replace("'", "'\\''")
 
@@ -96,10 +107,42 @@ _MOVES = [
 ]
 
 
+def _clip_scene(ffmpeg: str, clip: Path, frames: int, w: int, h: int, fps: int,
+                fill: str, out: Path, work_dir: Path) -> None:
+    """Animation du créateur, recadrée en 16:9, à la durée exacte de la scène.
+
+    Un clip plus court que la scène est rejoué en boucle (« boucle »), en aller-retour
+    (« aller-retour », sans saut visible) ou figé sur sa dernière image (« fige »).
+    Son éventuelle bande-son est ignorée : seule la narration est gardée.
+    """
+    fit = (f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
+           f"fps={fps},setsar=1")
+    source = clip
+    if fill == "aller-retour":
+        source = work_dir / f"{out.stem}_ar.mp4"
+        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-nostats", "-i", str(clip),
+                        "-filter_complex", f"[0:v]{fit},split[a][b];[b]reverse[r];"
+                        "[a][r]concat=n=2:v=1:a=0,format=yuv420p[v]", "-map", "[v]",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", str(source)],
+                       check=True)
+    loop = [] if fill == "fige" else ["-stream_loop", "-1"]
+    pad = f",tpad=stop_mode=clone:stop_duration={frames / fps + 1:.2f}" if fill == "fige" else ""
+    subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-nostats", *loop, "-i", str(source),
+                    "-vf", f"{fit}{pad},format=yuv420p", "-an", "-frames:v", str(frames),
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", str(out)],
+                   check=True)
+    if source != clip:
+        source.unlink(missing_ok=True)
+
+
 def assemble_illustrated(audio_path: str | Path, scenes: list, overlays: list[Slide],
                          out_path: str | Path, config: dict, work_dir: str | Path,
                          fallback_image: str | Path) -> Path:
-    """Fond animé (une illustration par scène) + calques de texte + narration."""
+    """Fond animé (une illustration ou un clip par scène) + calques de texte + narration.
+
+    Les scènes qui ont un clip (option « anime ») le jouent ; les autres montrent leur
+    image avec un zoom lent (``ken_burns``), ou fixe sinon.
+    """
     ffmpeg = check_ffmpeg()
     out_path = Path(out_path)
     work_dir = Path(work_dir)
@@ -116,17 +159,27 @@ def assemble_illustrated(audio_path: str | Path, scenes: list, overlays: list[Sl
         frames = max(1, round(scene.duration * fps))
         if k == len(scenes) - 1:
             frames += fps  # marge : les arrondis ne doivent pas couper la fin de la narration
-        image = scene.illustration.path if scene.illustration else fallback_image
-        z, x, y = (part.format(z=zoom, n=frames) for part in _MOVES[k % len(_MOVES)])
-        sw, sh = (round(v * supersampling / 2) * 2 for v in (w, h))
-        vf = (f"scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},"
-              f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps},"
-              "format=yuv420p")
         clip = work_dir / f"scene_{k:03d}.mp4"
-        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-nostats", "-i", str(image),
+        clips.append(clip)
+        if getattr(scene, "clip", None):
+            _clip_scene(ffmpeg, Path(scene.clip), frames, w, h, fps,
+                        config.get("anime_fill", "aller-retour"), clip, work_dir)
+            continue
+        image = scene.illustration.path if scene.illustration else fallback_image
+        if config.get("ken_burns", True):
+            z, x, y = (part.format(z=zoom, n=frames) for part in _MOVES[k % len(_MOVES)])
+            sw, sh = (round(v * supersampling / 2) * 2 for v in (w, h))
+            vf = (f"scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},"
+                  f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps},"
+                  "format=yuv420p")
+            inputs = ["-i", str(image)]
+        else:  # image fixe (montage « sans zoom » mêlé de clips)
+            vf = (f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
+                  f"fps={fps},format=yuv420p")
+            inputs = ["-loop", "1", "-framerate", str(fps), "-i", str(image)]
+        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-nostats", *inputs,
                         "-vf", vf, "-frames:v", str(frames), "-c:v", "libx264",
                         "-preset", "ultrafast", "-crf", "16", str(clip)], check=True)
-        clips.append(clip)
 
     background = work_dir / "fond.mp4"
     clip_list = work_dir / "scenes.txt"
