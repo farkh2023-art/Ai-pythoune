@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lecteur vocal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Literata:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --bg-1: #0b1a5c;
+    --bg-2: #2f4fd8;
+    --surface: #ffffff;
+    --surface-2: #f3f5fb;
+    --text: #14161f;
+    --muted: #5d6275;
+    --line: #e2e5ef;
+    --accent: #2f6fe0;
+    --accent-ink: #ffffff;
+    --highlight: #e3d4fb;
+    --word: #b993f5;
+    --danger: #c62f3a;
+    --disc: #000000;
+    --shadow: 0 18px 50px rgba(5, 12, 50, .35);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface: #171a24;
+      --surface-2: #20242f;
+      --text: #eceef5;
+      --muted: #a2a7b8;
+      --line: #2e3342;
+      --accent: #6c9bff;
+      --accent-ink: #0b1020;
+      --highlight: #4a3a6b;
+      --word: #7d5bc0;
+      --disc: #05060a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --surface: #171a24;
+    --surface-2: #20242f;
+    --text: #eceef5;
+    --muted: #a2a7b8;
+    --line: #2e3342;
+    --accent: #6c9bff;
+    --accent-ink: #0b1020;
+    --highlight: #4a3a6b;
+    --word: #7d5bc0;
+    --disc: #05060a;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Poppins", system-ui, sans-serif;
+    color: var(--text);
+    background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 100%) fixed;
+    background-color: var(--bg-1);
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .hidden { display: none !important; }
+  svg.ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- Accueil ---------- */
+  #home { max-width: 520px; margin: 0 auto; padding: 40px 16px 32px; color: #fff; }
+  #home h1 { font-size: clamp(34px, 9vw, 48px); font-weight: 800; line-height: 1.05; margin: 0 0 12px; letter-spacing: -.5px; }
+  #home p.lead { margin: 0 0 28px; opacity: .85; }
+  .cards { display: grid; gap: 14px; }
+  .card {
+    display: flex; align-items: center; gap: 16px; width: 100%; text-align: left;
+    background: var(--surface); color: var(--text); border: 0; border-radius: 22px;
+    padding: 18px; box-shadow: var(--shadow);
+  }
+  .card .disc { flex: 0 0 56px; height: 56px; border-radius: 50%; background: var(--disc); color: #fff; display: grid; place-items: center; }
+  .card strong { display: block; font-size: 17px; font-weight: 600; }
+  .card span { color: var(--muted); font-size: 14px; }
+  #paste-box { margin-top: 14px; background: var(--surface); border-radius: 22px; padding: 14px; box-shadow: var(--shadow); }
+  #paste-box textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border-radius: 12px; padding: 10px; font: 15px/1.5 "Literata", Georgia, serif; background: var(--surface-2); color: var(--text); resize: vertical; }
+  .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+  .btn { border: 0; border-radius: 999px; padding: 10px 18px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.ghost { background: transparent; color: var(--muted); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ---------- Lecteur ---------- */
+  #reader { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--surface); }
+  .toolbar {
+    display: flex; align-items: center; gap: 2px; padding: 8px 8px; border-bottom: 1px solid var(--line);
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+  .toolbar .spacer { flex: 1; }
+  .tb { background: none; border: 0; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--text); }
+  .tb.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .tb .cc { font-size: 11px; font-weight: 700; border: 1.8px solid currentColor; border-radius: 5px; padding: 1px 4px; }
+  #search-bar { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #search-bar input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface-2); color: var(--text); font: inherit; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+  #pages-nav { width: 96px; overflow-y: auto; border-right: 1px solid var(--line); padding: 8px; background: var(--surface-2); }
+  #pages-nav button { display: block; width: 100%; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 10px 0; font-size: 13px; }
+  #pages-nav button.cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  #doc { flex: 1; overflow-y: auto; padding: 8px 16px 140px; scroll-behavior: smooth; }
+  .page { max-width: 640px; margin: 0 auto; padding: 18px 0 26px; border-bottom: 10px solid var(--surface-2); position: relative; }
+  .page:last-child { border-bottom: 0; }
+  .page-num { position: absolute; right: 0; top: 14px; font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; background: var(--surface); }
+  .page h2 { font: 600 20px/1.3 "Poppins", sans-serif; margin: 34px 0 14px; }
+  .page p { font: var(--fs, 17px)/1.65 "Literata", Georgia, serif; margin: 0 0 14px; }
+  .s { border-radius: 4px; cursor: pointer; transition: background .15s; }
+  .s.cur { background: var(--highlight); }
+  .s mark { background: var(--word); color: inherit; border-radius: 3px; }
+  #doc.focus .s:not(.cur) { opacity: .35; }
+  #doc.nohl .s.cur { background: none; }
+  #doc.nohl .s mark { background: none; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 16px; }
+
+  .player {
+    position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: space-around;
+    padding: 14px 16px max(14px, env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line);
+  }
+  .avatar { width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--accent); background: var(--disc); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 18px; }
+  .pbtn { background: none; border: 0; width: 48px; height: 48px; display: grid; place-items: center; color: var(--text); }
+  .play { width: 60px; height: 60px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); border: 0; display: grid; place-items: center; }
+  .play svg { width: 26px; height: 26px; fill: currentColor; stroke: none; }
+  .speed { background: none; border: 0; font-size: 20px; min-width: 64px; color: var(--text); }
+  .status { position: absolute; left: 16px; right: 16px; bottom: calc(100% + 8px); text-align: center; font-size: 13px; }
+  .status span { background: var(--text); color: var(--surface); padding: 6px 12px; border-radius: 999px; }
+
+  /* ---------- Fenêtres ---------- */
+  .sheet-bg { position: fixed; inset: 0; background: rgba(5, 10, 40, .55); display: grid; place-items: center; padding: 16px; z-index: 10; }
+  .sheet {
+    position: relative; width: 100%; max-width: 440px; max-height: calc(100vh - 32px); overflow-y: auto;
+    background: var(--surface); border-radius: 40px; padding: 36px 26px 30px; box-shadow: var(--shadow);
+    border: 6px solid #2a2d38;
+  }
+  .sheet .close { position: absolute; right: 22px; top: 22px; background: none; border: 0; color: var(--muted); }
+  .sheet h2 { text-align: center; font-weight: 500; font-size: 30px; margin: 6px 0 22px; }
+  .sheet h2 small { font-size: 14px; color: var(--muted); border: 1.5px solid var(--muted); border-radius: 50%; width: 20px; height: 20px; display: inline-grid; place-items: center; vertical-align: middle; margin-left: 6px; }
+  .sheet p.intro { color: var(--text); line-height: 1.7; margin: 0 0 22px; }
+  .mic {
+    display: grid; place-items: center; width: min(250px, 70vw); aspect-ratio: 1; margin: 0 auto; border-radius: 50%;
+    background: var(--disc); border: 0; color: #d9dbe3; box-shadow: 0 6px 18px rgba(0,0,0,.25); position: relative;
+  }
+  .mic svg { width: 46%; height: 46%; stroke-width: 1.4; }
+  .mic.rec { box-shadow: 0 0 0 0 rgba(198,47,58,.6); animation: pulse 1.4s infinite; }
+  .mic.rec svg { color: #ff6b75; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 22px rgba(198,47,58,0); } 100% { box-shadow: 0 0 0 0 rgba(198,47,58,0); } }
+  .center { text-align: center; }
+  .big { font-size: 30px; font-weight: 500; margin: 20px 0 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .linkbtn { background: none; border: 0; font-size: 17px; padding: 6px; color: var(--text); }
+  .note { text-align: center; line-height: 1.6; margin: 18px 0 0; }
+  .field { margin: 16px 0 0; }
+  .field label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  .field input[type=text], .field input[type=password] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--surface-2); color: var(--text); font: inherit; }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; margin-top: 14px; line-height: 1.5; }
+  .check input { margin-top: 4px; }
+  audio { width: 100%; margin-top: 14px; }
+  .err { color: var(--danger); font-size: 14px; margin-top: 10px; }
+  .vlist { list-style: none; padding: 0; margin: 0; }
+  .vlist li { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+  .vlist li button.pick { flex: 1; text-align: left; background: none; border: 0; padding: 0; }
+  .vlist li.cur button.pick { color: var(--accent); font-weight: 600; }
+  .vlist h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 4px; }
+  .menu { position: absolute; right: 8px; top: 54px; z-index: 5; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; min-width: 220px; }
+  .menu button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 10px 12px; border-radius: 10px; }
+  .menu button:hover { background: var(--surface-2); }
+
+  @media (max-width: 560px) { #pages-nav { width: 70px; } .page h2 { margin-top: 40px; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h4.5v-5h4v5h4.5V9.5"/></symbol>
+    <symbol id="i-side" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M9 5v14"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M10.5 7.5v6M7.5 10.5h6"/></symbol>
+    <symbol id="i-zoomout" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M7.5 10.5h6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M5 4v4h4"/></symbol>
+    <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M19 4v4h-4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="11" rx="3.5"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7M10 6.5h1.5M10 9h1.5M12.5 6.5H14M12.5 9H14"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h5"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6h14M5 10h14M5 14h10M5 18h7"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+  </defs>
+</svg>
+
+<!-- ================= Accueil ================= -->
+<main id="home">
+  <h1>Écoutez vos PDF</h1>
+  <p class="lead">Ouvrez un document, appuyez sur lecture : le texte est lu à voix haute et surligné phrase par phrase — avec une voix de synthèse ou votre propre voix clonée.</p>
+  <div class="cards">
+    <button class="card" id="open-pdf">
+      <div class="disc"><svg class="ic"><use href="#i-doc"/></svg></div>
+      <div><strong>Ouvrir un PDF</strong><span>Le texte est extrait sur l'appareil</span></div>
+    </button>
+    <button class="card" id="open-paste">
+      <div class="disc"><svg class="ic"><use href="#i-text"/></svg></div>
+      <div><strong>Coller du texte</strong><span>Article, chapitre, notes…</span></div>
+    </button>
+    <button class="card" id="open-clone">
+      <div class="disc"><svg class="ic"><use href="#i-mic"/></svg></div>
+      <div><strong>Cloner ma voix</strong><span>50 à 90 secondes d'enregistrement</span></div>
+    </button>
+  </div>
+  <div id="paste-box" class="hidden">
+    <textarea id="paste-text" placeholder="Collez votre texte ici…"></textarea>
+    <div class="row">
+      <button class="btn ghost" id="paste-cancel">Annuler</button>
+      <button class="btn" id="paste-go">Lire</button>
+    </div>
+  </div>
+  <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden>
+</main>
+
+<!-- ================= Lecteur ================= -->
+<section id="reader" class="hidden">
+  <div class="toolbar">
+    <button class="tb" id="tb-home" title="Accueil" aria-label="Accueil"><svg class="ic"><use href="#i-home"/></svg></button>
+    <button class="tb" id="tb-side" title="Pages" aria-label="Pages"><svg class="ic"><use href="#i-side"/></svg></button>
+    <div class="spacer"></div>
+    <button class="tb" id="tb-focus" title="Mode concentration" aria-label="Mode concentration"><svg class="ic"><use href="#i-eye"/></svg></button>
+    <button class="tb on" id="tb-cc" title="Surlignage" aria-label="Surlignage"><span class="cc">CC</span></button>
+    <button class="tb" id="tb-zoomout" title="Réduire le texte" aria-label="Réduire le texte"><svg class="ic"><use href="#i-zoomout"/></svg></button>
+    <button class="tb" id="tb-zoom" title="Agrandir le texte" aria-label="Agrandir le texte"><svg class="ic"><use href="#i-zoom"/></svg></button>
+    <button class="tb" id="tb-search" title="Rechercher" aria-label="Rechercher"><svg class="ic"><use href="#i-search"/></svg></button>
+    <button class="tb" id="tb-more" title="Plus" aria-label="Plus"><svg class="ic"><use href="#i-more"/></svg></button>
+  </div>
+  <div class="menu hidden" id="menu">
+    <button data-act="voices">Choisir la voix</button>
+    <button data-act="clone">Cloner ma voix</button>
+    <button data-act="settings">Clé API (voix clonées)</button>
+    <button data-act="theme">Thème clair / sombre</button>
+  </div>
+  <form id="search-bar" class="hidden">
+    <input id="search-input" type="search" placeholder="Rechercher dans le document" enterkeyhint="search">
+    <button class="btn" type="submit">Suivant</button>
+  </form>
+  <div class="body">
+    <nav id="pages-nav" class="hidden"></nav>
+    <div id="doc"></div>
+  </div>
+  <div class="player">
+    <div class="status hidden" id="status"><span></span></div>
+    <button class="avatar" id="voice-btn" title="Voix" aria-label="Choisir la voix">A</button>
+    <button class="pbtn" id="prev" title="Phrase précédente" aria-label="Phrase précédente"><svg class="ic"><use href="#i-back"/></svg></button>
+    <button class="play" id="play" title="Lecture" aria-label="Lecture"><svg><use href="#i-play"/></svg></button>
+    <button class="pbtn" id="next" title="Phrase suivante" aria-label="Phrase suivante"><svg class="ic"><use href="#i-fwd"/></svg></button>
+    <button class="speed" id="speed" title="Vitesse" aria-label="Vitesse">1.0x</button>
+  </div>
+</section>
+
+<!-- ================= Clonage de voix ================= -->
+<div class="sheet-bg hidden" id="clone-sheet">
+  <div class="sheet" role="dialog" aria-labelledby="clone-title">
+    <button class="close" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
+    <h2 id="clone-title">Clonage de voix <small title="Votre échantillon est envoyé au service de synthèse configuré (ElevenLabs) qui crée une voix utilisable uniquement avec votre clé API.">?</small></h2>
+    <p class="intro">Enregistrez ou importez un échantillon de votre propre voix et créez sa réplique IA en quelques secondes.</p>
+    <button class="mic" id="mic" aria-label="Enregistrer"><svg class="ic"><use href="#i-mic"/></svg></button>
+    <div class="center">
+      <p class="big" id="rec-label">Enregistrer</p>
+      <div class="muted" id="rec-hint">(50 à 90 secondes)</div>
+      <p class="muted" style="margin:14px 0 4px">ou</p>
+      <button class="linkbtn" id="upload-btn">Importer un fichier audio</button>
+      <input type="file" id="audio-input" accept="audio/*" hidden>
+    </div>
+    <div id="clone-form" class="hidden">
+      <audio id="sample-audio" controls></audio>
+      <div class="field">
+        <label for="voice-name">Nom de la voix</label>
+        <input type="text" id="voice-name" value="Ma voix" maxlength="40">
+      </div>
+      <label class="check"><input type="checkbox" id="consent"> Je confirme que cet échantillon est ma propre voix et que j'accepte qu'il soit envoyé au service de clonage.</label>
+      <div class="err hidden" id="clone-err"></div>
+      <div class="row"><button class="btn" id="clone-go" disabled>Créer la voix</button></div>
+    </div>
+    <p class="note">Remarque : importer la voix d'une autre personne ne passera pas la vérification.</p>
+  </div>
+</div>
+
+<!-- ================= Voix ================= -->
+<div class="sheet-bg hidden" id="voice-sheet">
+  <div class="sheet" role="dialog" aria-labelledby="voice-title">
+    <button class="close" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
+    <h2 id="voice-title">Voix</h2>
+    <div id="voice-list"></div>
+  </div>
+</div>
+
+<!-- ================= Clé API ================= -->
+<div class="sheet-bg hidden" id="settings-sheet">
+  <div class="sheet" role="dialog" aria-labelledby="settings-title">
+    <button class="close" data-close aria-label="Fermer"><svg class="ic"><use href="#i-x"/></svg></button>
+    <h2 id="settings-title">Clé API</h2>
+    <p class="intro">Le clonage et la lecture avec une voix clonée passent par l'API ElevenLabs. La clé reste dans ce navigateur, sur cet appareil uniquement. Les voix de synthèse de l'appareil fonctionnent sans clé.</p>
+    <div class="field">
+      <label for="api-key">Clé API ElevenLabs</label>
+      <input type="password" id="api-key" autocomplete="off" placeholder="sk_…">
+    </div>
+    <div class="row"><button class="btn ghost" id="key-clear">Effacer</button><button class="btn" id="key-save">Enregistrer</button></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  const API = "https://api.elevenlabs.io/v1";
+  const MIN_SEC = 50, MAX_SEC = 90;
+  const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5];
+
+  // ---------- stockage local (peut être indisponible : navigation privée…) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  const state = {
+    sentences: [],          // { text, el, page }
+    pages: [],              // { num, el }
+    cur: 0,
+    playing: false,
+    speed: store.get("speed", 1),
+    fontSize: store.get("fontSize", 17),
+    voice: store.get("voice", { kind: "system", id: "" }),
+    lang: "fr",
+    token: 0,               // invalide les lectures en cours quand on saute ailleurs
+  };
+
+  const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function toast(msg, ms = 2600) {
+    const el = $("#status");
+    el.firstElementChild.textContent = msg;
+    el.classList.remove("hidden");
+    clearTimeout(toast.t);
+    if (ms) toast.t = setTimeout(() => el.classList.add("hidden"), ms);
+  }
+
+  function show(sheet) { $(sheet).classList.remove("hidden"); }
+  function hide(sheet) { $(sheet).classList.add("hidden"); }
+  document.querySelectorAll(".sheet-bg").forEach((bg) => {
+    bg.addEventListener("click", (e) => { if (e.target === bg || e.target.closest("[data-close]")) bg.classList.add("hidden"); });
+  });
+
+  // ---------- thème ----------
+  const theme = store.get("theme", null);
+  if (theme) document.documentElement.dataset.theme = theme;
+  function toggleTheme() {
+    const dark = document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "light" : "dark";
+    store.set("theme", document.documentElement.dataset.theme);
+  }
+
+  // ---------- découpage en phrases ----------
+  function splitSentences(text, lang) {
+    if (window.Intl && Intl.Segmenter) {
+      const seg = new Intl.Segmenter(lang, { granularity: "sentence" });
+      return [...seg.segment(text)].map((s) => s.segment.trim()).filter(Boolean);
+    }
+    return (text.match(/[^.!?…]+[.!?…]+["»”)]*\s*|[^.!?…]+$/g) || []).map((s) => s.trim()).filter(Boolean);
+  }
+
+  function guessLang(text) {
+    const sample = (" " + text.slice(0, 4000).toLowerCase() + " ").replace(/[^a-zàâçéèêëîïôûùüÿœ' ]+/g, " ");
+    const count = (words) => words.reduce((n, w) => n + (sample.split(" " + w + " ").length - 1), 0);
+    const fr = count(["le", "la", "les", "des", "est", "une", "et", "que", "pour", "dans"]);
+    const en = count(["the", "and", "is", "of", "to", "that", "for", "with", "this", "are"]);
+    if (/[؀-ۿ]/.test(text.slice(0, 2000))) return "ar";
+    return en > fr ? "en" : "fr";
+  }
+
+  // ---------- extraction PDF (sur l'appareil) ----------
+  async function readPdf(file) {
+    if (!window.pdfjsLib) throw new Error("La bibliothèque PDF n'a pas pu être chargée (connexion requise au premier lancement).");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pages = [];
+    for (let n = 1; n <= pdf.numPages; n++) {
+      toast(`Extraction du texte… page ${n}/${pdf.numPages}`, 0);
+      const page = await pdf.getPage(n);
+      const content = await page.getTextContent();
+      pages.push({ num: n, paragraphs: pdfParagraphs(content.items) });
+    }
+    return { title: file.name.replace(/\.pdf$/i, ""), pages };
+  }
+
+  // Regroupe les fragments en lignes, puis les lignes en paragraphes selon l'interligne.
+  function pdfParagraphs(items) {
+    const lines = [];
+    let cur = null;
+    for (const it of items) {
+      if (!("str" in it)) continue;
+      const y = it.transform[5], h = Math.abs(it.transform[3]) || it.height || 10;
+      if (!cur || Math.abs(cur.y - y) > h * 0.5) {
+        cur = { y, h, text: "" };
+        lines.push(cur);
+      }
+      cur.text += it.str;
+      if (it.hasEOL) cur = null;
+    }
+    const clean = lines.map((l) => ({ ...l, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text);
+    // Interligne normal = écart le plus fréquent (les sauts de paragraphe faussent la médiane).
+    const freq = new Map();
+    clean.slice(1).forEach((l, i) => {
+      const g = Math.round(Math.abs(clean[i].y - l.y));
+      if (g > 0) freq.set(g, (freq.get(g) || 0) + 1);
+    });
+    const normal = [...freq].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] || 14;
+    const paras = [];
+    let buf = "";
+    clean.forEach((l, i) => {
+      const gap = i ? Math.abs(clean[i - 1].y - l.y) : 0;
+      if (buf && (gap > normal * 1.45 || /^\d{1,4}$/.test(l.text))) { paras.push(buf); buf = ""; }
+      if (/^\d{1,4}$/.test(l.text)) return;              // numéro de page isolé
+      buf = buf.endsWith("-") ? buf.slice(0, -1) + l.text : (buf ? buf + " " : "") + l.text;
+    });
+    if (buf) paras.push(buf);
+    return paras;
+  }
+
+  function textDoc(text) {
+    const paras = text.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+    return { title: "Texte collé", pages: [{ num: 1, paragraphs: paras }] };
+  }
+
+  // ---------- rendu du document ----------
+  function render(doc) {
+    stop();
+    const all = doc.pages.flatMap((p) => p.paragraphs).join(" ");
+    state.lang = guessLang(all);
+    state.sentences = [];
+    state.pages = [];
+    state.cur = 0;
+    const host = $("#doc"), nav = $("#pages-nav");
+    host.innerHTML = "";
+    nav.innerHTML = "";
+    if (!all.trim()) {
+      host.innerHTML = '<p class="empty">Aucun texte trouvé. Ce PDF est peut-être scanné (images) : il faut d\'abord le passer à l\'OCR.</p>';
+      return;
+    }
+    doc.pages.forEach((p, pi) => {
+      const sec = document.createElement("section");
+      sec.className = "page";
+      sec.innerHTML = `<span class="page-num">${p.num}</span>`;
+      if (pi === 0) {
+        const h = document.createElement("h2");
+        h.textContent = doc.title;
+        sec.appendChild(h);
+      }
+      p.paragraphs.forEach((para) => {
+        const el = document.createElement("p");
+        splitSentences(para, state.lang).forEach((s) => {
+          const span = document.createElement("span");
+          span.className = "s";
+          span.textContent = s;
+          span.dataset.i = state.sentences.length;
+          state.sentences.push({ text: s, el: span, page: pi });
+          el.append(span, " ");
+        });
+        sec.appendChild(el);
+      });
+      host.appendChild(sec);
+      state.pages.push({ num: p.num, el: sec });
+      const b = document.createElement("button");
+      b.textContent = p.num;
+      b.onclick = () => sec.scrollIntoView({ behavior: "smooth" });
+      nav.appendChild(b);
+    });
+    setCurrent(0, false);
+    hide("#status");
+  }
+
+  function setCurrent(i, scroll = true) {
+    const prev = state.sentences[state.cur];
+    if (prev) { prev.el.classList.remove("cur"); prev.el.textContent = prev.text; }
+    state.cur = Math.max(0, Math.min(i, state.sentences.length - 1));
+    const s = state.sentences[state.cur];
+    if (!s) return;
+    s.el.classList.add("cur");
+    if (scroll) s.el.scrollIntoView({ block: "center", behavior: "smooth" });
+    document.querySelectorAll("#pages-nav button").forEach((b, k) => b.classList.toggle("cur", k === s.page));
+  }
+
+  function markWord(i, start, len) {
+    const s = state.sentences[i];
+    if (!s || i !== state.cur) return;
+    const t = s.text;
+    if (len <= 0) { const m = t.slice(start).match(/^\S+/); len = m ? m[0].length : 0; }
+    s.el.innerHTML = escapeHtml(t.slice(0, start)) + "<mark>" + escapeHtml(t.slice(start, start + len)) + "</mark>" + escapeHtml(t.slice(start + len));
+  }
+
+  // ---------- moteurs de voix ----------
+  let systemVoices = [];
+  function loadSystemVoices() {
+    if (!("speechSynthesis" in window)) return;
+    systemVoices = speechSynthesis.getVoices();
+    updateAvatar();
+  }
+  if ("speechSynthesis" in window) {
+    loadSystemVoices();
+    speechSynthesis.onvoiceschanged = loadSystemVoices;
+  }
+
+  function pickSystemVoice() {
+    const chosen = systemVoices.find((v) => v.voiceURI === state.voice.id);
+    if (chosen) return chosen;
+    return systemVoices.find((v) => v.lang.toLowerCase().startsWith(state.lang) && v.localService)
+      || systemVoices.find((v) => v.lang.toLowerCase().startsWith(state.lang)) || null;
+  }
+
+  function speakSystem(i, token) {
+    return new Promise((resolve, reject) => {
+      if (!("speechSynthesis" in window)) return reject(new Error("La synthèse vocale n'est pas disponible dans ce navigateur."));
+      const u = new SpeechSynthesisUtterance(state.sentences[i].text);
+      const v = pickSystemVoice();
+      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = state.lang;
+      u.rate = state.speed;
+      u.onboundary = (e) => { if (token === state.token && e.name !== "sentence") markWord(i, e.charIndex, e.charLength || 0); };
+      u.onend = () => resolve();
+      u.onerror = (e) => (e.error === "interrupted" || e.error === "canceled") ? resolve() : reject(new Error("Erreur de synthèse : " + e.error));
+      speechSynthesis.speak(u);
+    });
+  }
+
+  const audioEl = new Audio();
+  const cloudCache = new Map();   // index de phrase -> Promise<{url, alignment}>
+
+  function fetchCloud(i) {
+    const key = state.voice.id + "|" + i;
+    if (!cloudCache.has(key)) {
+      const p = (async () => {
+        const apiKey = store.get("apiKey", "");
+        if (!apiKey) throw new Error("Ajoutez votre clé API pour lire avec une voix clonée (menu ⋯).");
+        const r = await fetch(`${API}/text-to-speech/${encodeURIComponent(state.voice.id)}/with-timestamps`, {
+          method: "POST",
+          headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ text: state.sentences[i].text, model_id: "eleven_multilingual_v2" }),
+        });
+        if (!r.ok) throw new Error(await apiError(r));
+        const data = await r.json();
+        const bytes = Uint8Array.from(atob(data.audio_base64), (c) => c.charCodeAt(0));
+        return { url: URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" })), alignment: data.alignment };
+      })();
+      p.catch(() => cloudCache.delete(key));
+      cloudCache.set(key, p);
+    }
+    return cloudCache.get(key);
+  }
+
+  async function speakCloud(i, token) {
+    const clip = await fetchCloud(i);
+    if (i + 1 < state.sentences.length) fetchCloud(i + 1).catch(() => {});   // préchargement
+    if (token !== state.token) return;
+    return new Promise((resolve, reject) => {
+      const a = clip.alignment;
+      audioEl.src = clip.url;
+      audioEl.playbackRate = state.speed;
+      audioEl.ontimeupdate = () => {
+        if (!a || token !== state.token) return;
+        const t = audioEl.currentTime;
+        let k = a.character_start_times_seconds.findIndex((s, j) => s <= t && t < a.character_end_times_seconds[j]);
+        if (k < 0) return;
+        const text = state.sentences[i].text;
+        let start = k; while (start > 0 && !/\s/.test(text[start - 1])) start--;
+        let end = k; while (end < text.length && !/\s/.test(text[end])) end++;
+        markWord(i, start, end - start);
+      };
+      audioEl.onended = () => resolve();
+      audioEl.onerror = () => reject(new Error("Lecture audio impossible."));
+      audioEl.play().catch(reject);
+    });
+  }
+
+  // ---------- lecture ----------
+  async function play() {
+    if (!state.sentences.length) return;
+    state.playing = true;
+    updatePlay();
+    const token = ++state.token;
+    try {
+      while (state.playing && token === state.token && state.cur < state.sentences.length) {
+        setCurrent(state.cur);
+        await (state.voice.kind === "cloned" ? speakCloud(state.cur, token) : speakSystem(state.cur, token));
+        if (token !== state.token) return;
+        if (state.cur >= state.sentences.length - 1) break;
+        setCurrent(state.cur + 1);
+      }
+      if (token === state.token) { state.playing = false; updatePlay(); }
+    } catch (err) {
+      if (token !== state.token) return;
+      state.playing = false;
+      updatePlay();
+      toast(err.message, 5000);
+    }
+  }
+
+  function stop() {
+    state.playing = false;
+    state.token++;
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    audioEl.pause();
+    updatePlay();
+  }
+
+  function jump(i) {
+    const wasPlaying = state.playing;
+    stop();
+    setCurrent(i);
+    if (wasPlaying) play();
+  }
+
+  function updatePlay() {
+    $("#play use").setAttribute("href", state.playing ? "#i-pause" : "#i-play");
+    $("#play").setAttribute("aria-label", state.playing ? "Pause" : "Lecture");
+  }
+
+  function updateAvatar() {
+    const name = state.voice.kind === "cloned"
+      ? state.voice.name
+      : (pickSystemVoice()?.name || "Voix");
+    $("#voice-btn").textContent = (name.replace(/^(Microsoft|Google)\s+/i, "")[0] || "V").toUpperCase();
+    $("#voice-btn").title = "Voix : " + name;
+  }
+
+  // ---------- choix de la voix ----------
+  function renderVoices() {
+    const box = $("#voice-list");
+    const cloned = store.get("clonedVoices", []);
+    const sys = systemVoices.filter((v) => v.lang.toLowerCase().startsWith(state.lang));
+    const others = systemVoices.filter((v) => !v.lang.toLowerCase().startsWith(state.lang));
+    const item = (label, sub, active, onPick, onDelete) => {
+      const li = document.createElement("li");
+      if (active) li.className = "cur";
+      const b = document.createElement("button");
+      b.className = "pick";
+      b.innerHTML = `${escapeHtml(label)}<br><span class="muted">${escapeHtml(sub)}</span>`;
+      b.onclick = onPick;
+      li.appendChild(b);
+      if (onDelete) {
+        const d = document.createElement("button");
+        d.className = "tb";
+        d.title = "Supprimer";
+        d.setAttribute("aria-label", "Supprimer " + label);
+        d.innerHTML = '<svg class="ic"><use href="#i-trash"/></svg>';
+        d.onclick = onDelete;
+        li.appendChild(d);
+      }
+      return li;
+    };
+    const section = (title, nodes) => {
+      if (!nodes.length) return;
+      const h = document.createElement("h3");
+      h.textContent = title;
+      const ul = document.createElement("ul");
+      ul.className = "vlist";
+      nodes.forEach((n) => ul.appendChild(n));
+      box.append(h, ul);
+    };
+    box.innerHTML = "";
+    const choose = (v) => { stop(); state.voice = v; store.set("voice", v); updateAvatar(); hide("#voice-sheet"); };
+    section("Mes voix clonées", cloned.map((v) => item(v.name, "ElevenLabs", state.voice.kind === "cloned" && state.voice.id === v.id,
+      () => choose({ kind: "cloned", id: v.id, name: v.name }),
+      () => deleteClone(v))));
+    const cur = pickSystemVoice();
+    const sysItem = (v) => item(v.name, v.lang + (v.localService ? " · hors ligne" : ""), state.voice.kind === "system" && cur && cur.voiceURI === v.voiceURI,
+      () => choose({ kind: "system", id: v.voiceURI }));
+    section("Voix de l'appareil · langue du document", sys.map(sysItem));
+    section("Autres langues", others.map(sysItem));
+    if (!box.children.length) box.innerHTML = '<p class="muted">Aucune voix disponible dans ce navigateur.</p>';
+    const add = document.createElement("div");
+    add.className = "row";
+    add.innerHTML = '<button class="btn">Cloner ma voix</button>';
+    add.firstChild.onclick = () => { hide("#voice-sheet"); openClone(); };
+    box.appendChild(add);
+  }
+
+  async function deleteClone(v) {
+    if (!confirm(`Supprimer la voix « ${v.name} » ?`)) return;
+    const apiKey = store.get("apiKey", "");
+    if (apiKey) {
+      try {
+        const r = await fetch(`${API}/voices/${encodeURIComponent(v.id)}`, { method: "DELETE", headers: { "xi-api-key": apiKey } });
+        if (!r.ok && r.status !== 404) throw new Error(await apiError(r));
+      } catch (e) { toast("Suppression distante impossible : " + e.message, 5000); return; }
+    }
+    store.set("clonedVoices", store.get("clonedVoices", []).filter((x) => x.id !== v.id));
+    if (state.voice.id === v.id) { state.voice = { kind: "system", id: "" }; store.set("voice", state.voice); updateAvatar(); }
+    renderVoices();
+  }
+
+  async function apiError(r) {
+    try {
+      const j = await r.json();
+      const d = j.detail;
+      return (typeof d === "string" ? d : d?.message) || `Erreur ${r.status}`;
+    } catch { return `Erreur ${r.status}`; }
+  }
+
+  // ---------- clonage de voix ----------
+  const clone = { recorder: null, chunks: [], blob: null, seconds: 0, timer: null, stream: null };
+
+  function openClone() {
+    resetClone();
+    show("#clone-sheet");
+  }
+
+  function resetClone() {
+    stopRecording(true);
+    clone.blob = null;
+    clone.seconds = 0;
+    $("#rec-label").textContent = "Enregistrer";
+    $("#rec-hint").textContent = `(${MIN_SEC} à ${MAX_SEC} secondes)`;
+    $("#clone-form").classList.add("hidden");
+    $("#clone-err").classList.add("hidden");
+    $("#consent").checked = false;
+    updateCloneBtn();
+  }
+
+  async function toggleRecording() {
+    if (clone.recorder) return stopRecording();
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      return cloneError("L'enregistrement n'est pas pris en charge ici. Ouvrez la page en https ou via http://127.0.0.1, ou importez un fichier.");
+    }
+    try {
+      clone.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      return cloneError("Accès au micro refusé.");
+    }
+    clone.chunks = [];
+    clone.blob = null;
+    clone.recorder = new MediaRecorder(clone.stream);
+    clone.recorder.ondataavailable = (e) => e.data.size && clone.chunks.push(e.data);
+    clone.recorder.onstop = () => {
+      const type = clone.recorder?.mimeType || "audio/webm";
+      if (!clone.discard) setSample(new Blob(clone.chunks, { type }), clone.seconds);
+      clone.recorder = null;
+      clone.discard = false;
+    };
+    clone.seconds = 0;
+    clone.recorder.start(1000);
+    $("#mic").classList.add("rec");
+    $("#mic").setAttribute("aria-label", "Arrêter l'enregistrement");
+    $("#rec-label").textContent = "0 s";
+    $("#rec-hint").textContent = "Lisez un texte à voix haute, au calme. Touchez pour arrêter.";
+    $("#clone-form").classList.add("hidden");
+    clone.timer = setInterval(() => {
+      clone.seconds++;
+      $("#rec-label").textContent = `${clone.seconds} s`;
+      if (clone.seconds >= MAX_SEC) stopRecording();
+    }, 1000);
+  }
+
+  function stopRecording(discard = false) {
+    clearInterval(clone.timer);
+    $("#mic").classList.remove("rec");
+    $("#mic").setAttribute("aria-label", "Enregistrer");
+    if (clone.recorder && clone.recorder.state !== "inactive") { clone.discard = discard; clone.recorder.stop(); }
+    if (clone.stream) { clone.stream.getTracks().forEach((t) => t.stop()); clone.stream = null; }
+  }
+
+  function setSample(blob, seconds) {
+    clone.blob = blob;
+    clone.seconds = seconds;
+    const url = URL.createObjectURL(blob);
+    $("#sample-audio").src = url;
+    $("#clone-form").classList.remove("hidden");
+    $("#rec-label").textContent = "Réenregistrer";
+    const audio = new Audio(url);
+    audio.onloadedmetadata = () => {
+      if (Number.isFinite(audio.duration)) { clone.seconds = Math.round(audio.duration); updateCloneBtn(); }
+    };
+    updateCloneBtn();
+  }
+
+  function updateCloneBtn() {
+    const enough = clone.blob && clone.seconds >= MIN_SEC;
+    $("#clone-go").disabled = !(enough && $("#consent").checked && $("#voice-name").value.trim());
+    $("#rec-hint").textContent = !clone.blob
+      ? (clone.recorder ? $("#rec-hint").textContent : `(${MIN_SEC} à ${MAX_SEC} secondes)`)
+      : enough ? `Échantillon de ${clone.seconds} s prêt.` : `Échantillon de ${clone.seconds} s : il en faut au moins ${MIN_SEC}.`;
+  }
+
+  function cloneError(msg) {
+    const el = $("#clone-err");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+    $("#clone-form").classList.remove("hidden");
+  }
+
+  async function createClone() {
+    const apiKey = store.get("apiKey", "");
+    if (!apiKey) { hide("#clone-sheet"); openSettings(); toast("Ajoutez d'abord votre clé API ElevenLabs.", 4000); return; }
+    const btn = $("#clone-go");
+    btn.disabled = true;
+    btn.textContent = "Création…";
+    $("#clone-err").classList.add("hidden");
+    try {
+      const ext = (clone.blob.type.split("/")[1] || "webm").split(";")[0];
+      const form = new FormData();
+      form.append("name", $("#voice-name").value.trim());
+      form.append("description", "Voix personnelle créée avec le lecteur vocal Ai-pythoune.");
+      form.append("files", clone.blob, `echantillon.${ext}`);
+      const r = await fetch(`${API}/voices/add`, { method: "POST", headers: { "xi-api-key": apiKey }, body: form });
+      if (!r.ok) throw new Error(await apiError(r));
+      const { voice_id } = await r.json();
+      const v = { id: voice_id, name: $("#voice-name").value.trim() };
+      store.set("clonedVoices", [...store.get("clonedVoices", []), v]);
+      state.voice = { kind: "cloned", ...v };
+      store.set("voice", state.voice);
+      updateAvatar();
+      hide("#clone-sheet");
+      toast(`Voix « ${v.name} » créée et sélectionnée.`, 4000);
+    } catch (e) {
+      cloneError("Échec du clonage : " + e.message);
+    } finally {
+      btn.textContent = "Créer la voix";
+      updateCloneBtn();
+    }
+  }
+
+  function openSettings() {
+    $("#api-key").value = store.get("apiKey", "");
+    show("#settings-sheet");
+  }
+
+  // ---------- recherche ----------
+  function searchNext(q) {
+    q = q.trim().toLowerCase();
+    if (!q) return;
+    const n = state.sentences.length;
+    for (let k = 1; k <= n; k++) {
+      const i = (state.cur + k) % n;
+      if (state.sentences[i].text.toLowerCase().includes(q)) {
+        jump(i);
+        const t = state.sentences[i].text, at = t.toLowerCase().indexOf(q);
+        markWord(i, at, q.length);
+        return;
+      }
+    }
+    toast("Aucun résultat.");
+  }
+
+  // ---------- navigation entre écrans ----------
+  function openReader(doc) {
+    $("#home").classList.add("hidden");
+    $("#reader").classList.remove("hidden");
+    render(doc);
+    updateAvatar();
+  }
+
+  // ---------- événements ----------
+  $("#open-pdf").onclick = () => $("#pdf-input").click();
+  $("#pdf-input").onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    $("#home").classList.add("hidden");
+    $("#reader").classList.remove("hidden");
+    $("#doc").innerHTML = '<p class="empty">Lecture du PDF…</p>';
+    try { openReader(await readPdf(f)); }
+    catch (err) { $("#doc").innerHTML = ""; const p = document.createElement("p"); p.className = "empty"; p.textContent = "Impossible de lire ce PDF : " + err.message; $("#doc").appendChild(p); hide("#status"); }
+  };
+  $("#open-paste").onclick = () => { $("#paste-box").classList.remove("hidden"); $("#paste-text").focus(); };
+  $("#paste-cancel").onclick = () => $("#paste-box").classList.add("hidden");
+  $("#paste-go").onclick = () => { const t = $("#paste-text").value; if (t.trim()) openReader(textDoc(t)); };
+  $("#open-clone").onclick = openClone;
+
+  $("#tb-home").onclick = () => { stop(); $("#reader").classList.add("hidden"); $("#home").classList.remove("hidden"); };
+  $("#tb-side").onclick = (e) => { $("#pages-nav").classList.toggle("hidden"); e.currentTarget.classList.toggle("on"); };
+  $("#tb-focus").onclick = (e) => { $("#doc").classList.toggle("focus"); e.currentTarget.classList.toggle("on"); };
+  $("#tb-cc").onclick = (e) => { $("#doc").classList.toggle("nohl"); e.currentTarget.classList.toggle("on"); };
+  const applyFont = () => { document.documentElement.style.setProperty("--fs", state.fontSize + "px"); store.set("fontSize", state.fontSize); };
+  $("#tb-zoom").onclick = () => { state.fontSize = Math.min(30, state.fontSize + 2); applyFont(); };
+  $("#tb-zoomout").onclick = () => { state.fontSize = Math.max(13, state.fontSize - 2); applyFont(); };
+  $("#tb-search").onclick = (e) => { $("#search-bar").classList.toggle("hidden"); e.currentTarget.classList.toggle("on"); $("#search-input").focus(); };
+  $("#search-bar").onsubmit = (e) => { e.preventDefault(); searchNext($("#search-input").value); };
+  $("#tb-more").onclick = (e) => { e.stopPropagation(); $("#menu").classList.toggle("hidden"); };
+  document.addEventListener("click", (e) => { if (!e.target.closest("#menu")) $("#menu").classList.add("hidden"); });
+  $("#menu").onclick = (e) => {
+    const act = e.target.dataset.act;
+    $("#menu").classList.add("hidden");
+    if (act === "voices") { renderVoices(); show("#voice-sheet"); }
+    if (act === "clone") openClone();
+    if (act === "settings") openSettings();
+    if (act === "theme") toggleTheme();
+  };
+
+  $("#doc").onclick = (e) => { const s = e.target.closest(".s"); if (s) jump(+s.dataset.i); };
+  $("#play").onclick = () => state.playing ? stop() : play();
+  $("#prev").onclick = () => jump(state.cur - 1);
+  $("#next").onclick = () => jump(state.cur + 1);
+  $("#speed").onclick = () => {
+    const i = SPEEDS.indexOf(state.speed);
+    state.speed = SPEEDS[(i + 1) % SPEEDS.length];
+    store.set("speed", state.speed);
+    $("#speed").textContent = state.speed.toFixed(2).replace(/0$/, "") + "x";
+    if (state.voice.kind === "cloned") audioEl.playbackRate = state.speed;
+    else if (state.playing) jump(state.cur);   // la synthèse système applique la vitesse à la phrase suivante
+  };
+  $("#voice-btn").onclick = () => { renderVoices(); show("#voice-sheet"); };
+  document.addEventListener("keydown", (e) => {
+    if ($("#reader").classList.contains("hidden") || e.target.closest("input, textarea")) return;
+    if (e.code === "Space") { e.preventDefault(); $("#play").click(); }
+    if (e.code === "ArrowRight") $("#next").click();
+    if (e.code === "ArrowLeft") $("#prev").click();
+  });
+
+  $("#mic").onclick = toggleRecording;
+  $("#upload-btn").onclick = () => $("#audio-input").click();
+  $("#audio-input").onchange = (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    stopRecording(true);
+    $("#clone-err").classList.add("hidden");
+    setSample(f, 0);
+  };
+  $("#consent").onchange = updateCloneBtn;
+  $("#voice-name").oninput = updateCloneBtn;
+  $("#clone-go").onclick = createClone;
+  $("#clone-sheet").addEventListener("click", (e) => { if (e.target.closest("[data-close]") || e.target === e.currentTarget) stopRecording(true); });
+
+  $("#key-save").onclick = () => { store.set("apiKey", $("#api-key").value.trim()); hide("#settings-sheet"); toast("Clé enregistrée sur cet appareil."); };
+  $("#key-clear").onclick = () => { store.del("apiKey"); $("#api-key").value = ""; toast("Clé effacée."); };
+
+  applyFont();
+  $("#speed").textContent = state.speed.toFixed(2).replace(/0$/, "") + "x";
+})();
+</script>
+</body>
+</html>
