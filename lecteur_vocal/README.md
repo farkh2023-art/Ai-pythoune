@@ -17,11 +17,15 @@ Le micro n'est accessible qu'en contexte sécurisé : servez le dossier en local
 plutôt que d'ouvrir le fichier directement.
 
 ```bash
-cd lecteur_vocal
-python -m http.server 8000
+cd ~/Ai-pythoune && git pull      # récupère la dernière version
+python lecteur_vocal/serve.py --open
 ```
 
-Puis ouvrez <http://127.0.0.1:8000> (sur Android/Termux, dans Chrome).
+Puis ouvrez <http://127.0.0.1:8000> (`--open` le fait pour vous, y compris
+sous Termux). `serve.py` sert **toujours son propre dossier**, quel que soit le
+dossier courant, et n'écoute que sur cet appareil. Évitez `python -m http.server`
+lancé depuis le mauvais dossier : il publierait tout ce dossier (par exemple
+`~/.ssh` ou `~/.git-credentials`) sur le réseau local.
 Une connexion Internet est nécessaire au premier chargement (pdf.js et polices).
 
 ## Voix
