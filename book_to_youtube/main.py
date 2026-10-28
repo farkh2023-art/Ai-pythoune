@@ -37,9 +37,14 @@ def series_slug(title: str, source: str | Path, lang: str, book_lang: str,
     Chaque variante a son propre dossier et n'écrase jamais l'originale : « -ar »
     (autre langue), « -longue » (tout en une vidéo), « -short » (Shorts 9:16).
     Un titre sans lettres latines (arabe…) prend le nom du fichier, sinon une empreinte.
+    Un fichier de questions prend toujours son nom de fichier, unique (« sommeil-fr-2 ») :
+    deux tirages sur le même mot-clé ont souvent le même titre.
     """
-    base = (slugify(title, "") or slugify(Path(source).stem, "")
-            or "livre-" + hashlib.sha1(title.encode()).hexdigest()[:6])
+    if curiosity.is_curiosity(source):
+        base = slugify(Path(source).name[:-len(curiosity.SUFFIX)], "question")
+    else:
+        base = (slugify(title, "") or slugify(Path(source).stem, "")
+                or "livre-" + hashlib.sha1(title.encode()).hexdigest()[:6])
     base = base if lang == book_lang else f"{base}-{lang}"
     base = f"{base}-longue" if single else base
     return f"{base}-short" if short else base
@@ -87,6 +92,19 @@ def book_language(text: str, config: dict) -> tuple[str, bool]:
     return source, True
 
 
+def written_language(book: reader.Book, config: dict, asked: dict | None) -> dict:
+    """Questions « curiosité » : la vidéo est dans la langue où elles ont été écrites, sauf
+    `--lang` explicite (dans `asked`), et cette langue est celle du « livre » à traduire."""
+    written = book.metadata.get("langue") if book.metadata.get("curiosite") else None
+    if written not in languages.CODES:
+        return config
+    asked = asked or {}
+    return {**config,
+            "language": asked.get("language") or written,
+            "book_language": (asked.get("book_language")
+                              if asked.get("book_language") not in (None, "auto") else written)}
+
+
 def _drop_progress(folder: Path) -> None:
     """Dossier provisoire (avant de connaître la langue) : retiré s'il ne contient rien d'autre."""
     (folder / "progress.json").unlink(missing_ok=True)
@@ -123,10 +141,12 @@ def main(book_path: str | Path, config: dict | None = None,
     dans le manifeste pour pouvoir régénérer un épisode avec les mêmes réglages.
     `prompts_only` : prépare seulement les prompts d'images et les dossiers de scènes.
     """
+    asked = config
     config = effective_config(config)
     video.check_ffmpeg()
 
     book = reader.load_book(book_path)                          # 1. Lecture
+    config = written_language(book, config, asked)
     check_has_text(book, config)
     slug = series_slug(book.title, book.source, "", "")
     out_dir = Path(config["output_dir"]) / slug
@@ -542,8 +562,10 @@ def build_parser() -> argparse.ArgumentParser:
 def write_presentation(book_path: str | Path, config: dict | None = None,
                        force: bool = False, client=None) -> str:
     """Rédige (ou relit) la présentation du livre et l'enregistre."""
+    asked = config
     config = {**CONFIG, **(config or {})}
     book = reader.load_book(book_path)
+    config = written_language(book, config, asked)
     check_has_text(book, config)
     book = ensure_text(book, config, client=client)
     texte = cleaner.clean(book.text)

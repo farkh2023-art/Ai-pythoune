@@ -151,6 +151,7 @@ def to_book(data: dict) -> tuple[str, dict]:
         parts.append(f"{label} {n} — {q['question'].strip()}")
         parts.append(q["script"].strip())
     meta = {"title": data.get("titre") or data.get("mot_cle", ""), "curiosite": True,
+            "langue": data.get("langue"),
             "hashtags": [q.get("hashtags", []) for q in data["questions"]],
             "youtube_titles": [q.get("titre_youtube", "") for q in data["questions"]]}
     return "\n\n".join(parts), meta
