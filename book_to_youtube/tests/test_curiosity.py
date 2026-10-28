@@ -129,6 +129,40 @@ def test_build_four_shorts_and_one_long_video(tmp_path):
     assert ep["youtube_title"] == "Le sommeil en 4 questions"
     assert "Épisode 1" not in (long_.parent / ep["subtitles"]).read_text(encoding="utf-8")
 
+    # Questions en anglais, construites sans --lang : Shorts en anglais, dans leur dossier.
+    english = write_file(tmp_path / "input", lang="en")
+    manifest = main.main(english, {**base, "video_format": "short", "resolution": (360, 640)},
+                         only=[1])
+    assert manifest.parent.name == "sommeil-en-short"
+    assert json.loads(manifest.read_text())["language"] == "en"
+
+
+def test_video_is_in_the_language_of_the_questions(tmp_path, monkeypatch):
+    from modules import claude_client
+    monkeypatch.setattr(claude_client, "available", lambda: True)
+    book = reader.load_book(write_file(tmp_path, lang="en"))
+    text = book.text
+    # Sans --lang : vidéo en anglais, rien à traduire (avant : retraduite en français).
+    config = main.written_language(book, main.effective_config({}), {})
+    assert config["language"] == "en" and main.book_language(text, config) == ("en", False)
+    # --lang explicite : traduction depuis la langue des questions.
+    config = main.written_language(book, main.effective_config({"language": "ar"}),
+                                   {"language": "ar"})
+    assert config["language"] == "ar" and main.book_language(text, config) == ("en", True)
+    # Un livre ordinaire n'est pas concerné.
+    plain = reader.Book(title="x", author=None, text="x", source=tmp_path / "x.txt")
+    assert main.written_language(plain, {"language": "fr"}, {}) == {"language": "fr"}
+
+
+def test_each_questions_file_has_its_own_series(tmp_path):
+    first = write_file(tmp_path)
+    second = write_file(tmp_path)  # même mot-clé, même titre : « sommeil-fr-2 »
+    slugs = {main.series_slug("Le sommeil en 4 questions", path, "fr", "fr", short=True)
+             for path in (first, second)}
+    assert slugs == {"sommeil-fr-short", "sommeil-fr-2-short"}
+    assert main.series_slug("نوم", tmp_path / "question-ar.curiosite.json", "ar", "ar") \
+        == "question-ar"
+
 
 def test_write_curiosity_saves_into_input(tmp_path, monkeypatch):
     monkeypatch.setitem(main.CONFIG, "input_dir", tmp_path)
